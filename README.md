@@ -2,6 +2,8 @@
 
 A TypeScript-based RAG (Retrieval-Augmented Generation) project for building intelligent, source-grounded AI applications.
 
+This repository also contains the **Enterprise RAG Architecture & System Analysis Package** — a production-grade, 4-part design deliverable for the enterprise variant (Financial Services domain, AWS, SOC 2 Type II + GDPR, 10M+ documents). See [Enterprise Architecture & System Analysis Package](#enterprise-architecture--system-analysis-package).
+
 ## What is RAG?
 
 **Retrieval-Augmented Generation (RAG)** enhances Large Language Models (LLMs) by retrieving relevant information from an external knowledge base before generating a response. Instead of relying solely on the model's internal training data, RAG grounds the model's answers in fresh, factual, and source-specific documents.
@@ -28,6 +30,37 @@ User Query → [Embed] → [Vector DB Search] → [Top-K Chunks] → [LLM Prompt
 2. **Retrieval** — Embed query → Find similar chunks → (Optional) Re-rank
 3. **Generation** — Build prompt with context → LLM → Answer with citations
 
+## Enterprise Architecture & System Analysis Package
+
+Production-grade architecture & system analysis for the enterprise variant of this RAG system. The package is a 4-part engineering deliverable; `docs/` holds Parts 2–4 and `note.md` is a synced single-file working copy that also archives the Part 1 setup script (executed once to generate `docs/`, then removed from the repo at the owner's request).
+
+**Parameters**
+
+| Parameter | Value |
+|---|---|
+| Domain / Industry | Financial Services (contracts, filings, research, regulatory guidance) |
+| Cloud / Infrastructure | AWS — us-east-1 primary (a/b/c), eu-west-1 for EU data residency |
+| Security & Compliance | SOC 2 Type II + GDPR |
+| Scale & SLA | 10M+ documents · P95 < 800 ms · 99.9% monthly availability |
+
+**Deliverables**
+
+| Part | Deliverable | Location |
+|---|---|---|
+| 1 | `pathlib` docs-scaffolding script (idempotent, atomic writes, logging, exit codes) | `note.md` § PART 1 (archived; scaffold already executed) |
+| 2 | Requirement Analysis — scope & vision, human/system actors, 8 FRs, 7 quantitative NFRs, constraints | `docs/01_requirement_analysis.md` |
+| 3 | DFD Level 0 (context) & Level 1 (decomposed) in Mermaid.js, + data-flow inventory & store registry | `docs/02_data_flow_diagrams.md` |
+| 4 | Spiral SDLC plan — 3 loops × 4 quadrants (Naive PoC → Advanced Optimization → Production Enterprise) | `docs/03_spiral_sdlc_plan.md` |
+
+Key architectural decisions: hybrid dense (HNSW/ANN) + sparse (BM25) retrieval with RRF fusion (k = 60), cross-encoder re-ranking (top-5, threshold 0.75), pre-retrieval RBAC/tenant filter pushdown, LLM-gateway abstraction (model-agnostic), self-hosted Qdrant on EKS (no proprietary vector SaaS), immutable WORM + Merkle audit logging, GDPR erasure cascade.
+
+The scaffold was executed once to produce `docs/`. The Part 1 script (archived in `note.md` § PART 1) was removed from the repo at the owner's request; to regenerate or repair the scaffold, copy that script to `scripts/setup_docs.py` and run:
+
+```bash
+python3 scripts/setup_docs.py            # idempotent; skips existing files
+python3 scripts/setup_docs.py --force    # reseed existing files to metadata stubs (destructive)
+```
+
 ## Project Structure
 
 ```
@@ -39,7 +72,13 @@ RAG/
 │   ├── generate.ts     # LLM prompt & response generation
 │   └── types.ts        # Shared types & interfaces
 ├── data/               # Source documents
+├── docs/               # Enterprise architecture & system analysis package (Parts 2–4)
+│   ├── 01_requirement_analysis.md
+│   ├── 02_data_flow_diagrams.md
+│   ├── 03_spiral_sdlc_plan.md
+│   └── assets/
 ├── tests/              # Unit & integration tests
+├── note.md             # Synced working copy (archives Part 1 setup script)
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -120,7 +159,7 @@ console.log(answer.sources); // Cited documents
 |---|---|
 | Chroma | ✅ Supported |
 | Pinecone | 🔜 Planned |
-| Qdrant | 🔜 Planned |
+| Qdrant | 🎯 Enterprise target (self-hosted on EKS, see architecture package) |
 | FAISS | 🔜 Planned |
 | Weaviate | 🔜 Planned |
 
