@@ -108,3 +108,10 @@ export {
 
 export type { LogEvent, LogLevel, Logger } from './observability.js';
 export { createStructuredLogger, MetricsRecorder, sanitizeLogData } from './observability.js';
+
+export type {
+  QueryRequestBody,
+  QueryResponseBody,
+  ServerDependencies,
+} from './server.js';
+export { createHttpServer } from './server.js';
