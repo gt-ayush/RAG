@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -25,11 +26,16 @@ function toDocumentId(sourcePath: string): string {
   return path.resolve(sourcePath);
 }
 
-function buildMetadata(sourcePath: string): DocumentMetadata {
+function computeContentHash(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
+function buildMetadata(sourcePath: string, content?: string): DocumentMetadata {
   const resolved = path.resolve(sourcePath);
   return {
     documentId: toDocumentId(resolved),
     source: resolved,
+    ...(content !== undefined ? { contentHash: computeContentHash(content) } : {}),
   };
 }
 
@@ -89,7 +95,7 @@ export async function parseSourceFile(sourcePath: string): Promise<ParsedDocumen
       };
     }
 
-    const metadata = buildMetadata(resolved);
+    const metadata = buildMetadata(resolved, content);
     const document: Document = {
       id: metadata.documentId,
       content,
@@ -214,4 +220,72 @@ export function chunkDocument(
 
   return { ok: true, value: chunks };
 }
+
+export interface IngestFileResult {
+  source: string;
+  parse: ParsedDocument;
+  chunks?: readonly Chunk[];
+  chunkIssues?: readonly ValidationIssue[];
+}
+
+export interface IngestBatch {
+  files: readonly IngestFileResult[];
+  /** Deterministic, deduplicated chunks by chunk id across the batch. */
+  chunks: readonly Chunk[];
+  duplicatesSkipped: number;
+}
+
+/**
+ * Parse and chunk multiple sources. Per-file failures/unsupported/empty inputs
+ * are reported explicitly without aborting the rest of the batch.
+ * Repeated runs over the same unchanged inputs produce identical chunk records.
+ */
+export async function ingestSources(
+  sourcePaths: readonly string[],
+  options: Partial<ChunkingOptions> = {},
+): Promise<IngestBatch> {
+  const files: IngestFileResult[] = [];
+  const byChunkId = new Map<string, Chunk>();
+  let duplicatesSkipped = 0;
+
+  for (const sourcePath of sourcePaths) {
+    const parse = await parseSourceFile(sourcePath);
+    if (parse.status !== 'ok' || !parse.document) {
+      files.push({ source: parse.source, parse });
+      continue;
+    }
+
+    const chunked = chunkDocument(parse.document, options);
+    if (!chunked.ok) {
+      files.push({
+        source: parse.source,
+        parse,
+        chunkIssues: chunked.issues,
+      });
+      continue;
+    }
+
+    files.push({
+      source: parse.source,
+      parse,
+      chunks: chunked.value,
+      chunkIssues: [],
+    });
+
+    for (const chunk of chunked.value) {
+      if (byChunkId.has(chunk.id)) {
+        duplicatesSkipped += 1;
+        continue;
+      }
+      byChunkId.set(chunk.id, chunk);
+    }
+  }
+
+  return {
+    files,
+    chunks: [...byChunkId.values()],
+    duplicatesSkipped,
+  };
+}
+
 
