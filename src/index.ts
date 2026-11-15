@@ -28,3 +28,6 @@ export {
   loadPipelineConfigFromProcessEnv,
   parsePipelineConfig,
 } from './config.js';
+
+export type { ParsedDocument, ParseStatus } from './ingest.js';
+export { parseSourceFile } from './ingest.js';
