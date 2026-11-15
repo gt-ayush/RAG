@@ -69,3 +69,62 @@ Measured local smoke baseline (2026-11-15, `node scripts/benchmark-smoke.mjs`, s
 2. Integrate and validate approved embedding/LLM/vector-store adapters with timeouts, retries, budgets, and privacy/egress controls.
 3. Run representative, authorized benchmarks (concurrency, real dependencies, realistic datasets) and record results before performance/cost claims.
 4. Address security/compliance gaps (`docs/06`, `docs/07`) with implementation and operational evidence prior to any production or regulated use.
+
+## Runbooks (local baseline)
+
+These runbooks cover the operational procedures verified for the current local baseline. They assume a Node.js/TypeScript library deployment with no external infrastructure.
+
+### R-1: Local development start
+1. `npm install` — install dependencies.
+2. Copy `.env.example` to `.env` and fill values only if integrating real providers/stores (do not commit secrets).
+3. `npm run build` — compile TypeScript to `dist/`.
+4. `npm run typecheck` — verify types (`tsc --noEmit`).
+5. `npm test` — run Vitest suite (143 tests across 22 files as of last verified run).
+6. `npm run evaluate` — run synthetic smoke evaluation (deterministic mocks, no paid quota).
+
+### R-2: Health check
+- Call `GET /health` on the running HTTP server (created via `createHttpServer`).
+- Expected: `200 { status: "ok" }`.
+- Any other status or connection failure indicates the service is not running.
+
+### R-3: Readiness check
+- Call `GET /ready` on the running HTTP server.
+- Expected: `200 { status: "ready" }` when embedding provider, vector store, and language model are all wired.
+- `503 { status: "unavailable" }` indicates a missing dependency; check `ServerDependencies` configuration.
+
+### R-4: Query operation
+- Call `POST /query` with JSON body `{ "query": "<text>", "topK": 5, "tenantId": "<optional>" }`.
+- Expected: `200` with `{ answer, retrieved }`; answer includes `insufficientContext` flag when evidence is absent.
+- `400` for validation errors (missing query, invalid topK/tenantId); `401` when authorization policy is configured but no principal supplied; `403` when policy denies access; `502` for provider/store failures; `500` for internal errors.
+- Never log or return provider API keys or secret values.
+
+### R-5: Configuration validation failure
+- `npm run typecheck` fails: ensure `tsconfig.json`/`src/` are unchanged; run `npm install` and rebuild.
+- Config validation errors (`ConfigValidationError`): verify required env vars in `.env`; errors are non-sensitive and exclude secret values.
+- `TS18003` (no inputs): ensure `src/` contains TypeScript files; ESM imports use `.js` specifiers (NodeNext).
+
+### R-6: Evaluation/regression check
+- `npm run evaluate` — runs synthetic smoke eval against `data/eval/golden-v0.2.0.json` (n=10, deterministic mocks).
+- Compare reported metrics (Recall@3, MRR, insufficient-context count) against `data/eval/baselines/golden-v0.2.0.baseline.json`.
+- Any metric delta outside expected bounds indicates a regression; investigate before merging.
+
+### R-7: Smoke benchmark
+- `node scripts/benchmark-smoke.mjs` — local in-memory/mock micro-benchmark (synthetic n=3 dataset).
+- Output includes latency percentiles, throughput, and failure rate; results are environment-sensitive and not production evidence.
+
+### R-8: Ingestion lifecycle (re-index/delete/erasure)
+- Use `IngestionLifecycleTracker.shouldReindex()` to detect changed sources before re-ingesting.
+- Use `deleteDocument()`/`erasureDocument()` with verification sweep to confirm no residual chunks remain after deletion.
+- Check `residualChunkCount` — non-zero indicates incomplete deletion requiring investigation.
+
+### R-9: Incident response (baseline)
+- Provider timeout/unavailable: `generateGroundedAnswer` returns explicit error (502 via server), no silent fallback.
+- Empty/insufficient evidence: generation returns `insufficientContext: true`, no unsupported claims.
+- Cross-tenant access attempt: server returns `403` when authorization policy denies; tenant filtering is server-side only.
+- Store delete failure: `IngestionLifecycleTracker.deleteDocument()` returns `ok:false` and does not clear tracking records.
+
+### R-10: What NOT to do (baseline limits)
+- Do not run production deployment, multi-tenant workloads, regulated/financial data processing, or SOC 2/GDPR compliance claims without implementation and operational evidence.
+- Do not incur paid API/cloud usage or transmit restricted data to external services without explicit authorization.
+- Do not treat synthetic mock benchmarks as production performance/SLO evidence.
+- Do not rely on in-memory state for durability — all state is lost on restart.
