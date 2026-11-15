@@ -60,5 +60,9 @@ When running evaluations, record and report:
 - For comparisons, use the same dataset version/configuration where possible and report differences explicitly.
 
 ## Current status
-- **Baseline dataset created:** yes (`v0.1.0`, 3 synthetic cases).
-- **Measured evaluation run:** not recorded in this document. Phase 6.2/6.3 should execute repeatable measurements (where feasible with current implementation/providers) and record results with full context. If external model/vector services are unavailable or unauthorized, report that limitation instead of estimating outcomes.
+- **Baseline dataset created:** yes (`data/eval/golden-v0.1.0.json`, `v0.1.0`, 3 synthetic smoke cases).
+- **Measured evaluation run recorded:** yes (Phase 6.2/6.3) — see `docs/05_evaluation_baseline.md` and `data/eval/baselines/golden-v0.1.0.baseline.json`.
+  - **Method/config:** deterministic local mock embedding/generation, `chunkSize=200/overlap=0`, `MemoryVectorStore`, `topK=3`, separate retrieval+generation passes (`npm run evaluate` / `tests/eval.smoke.test.ts`).
+  - **Measured (synthetic smoke, n=3):** Retrieval `Recall@3=1.0`, `MRR=1.0`; Generation `insufficientContextCases=1` (`smoke-003`).
+  - **Not measured:** nDCG@K, human-judged faithfulness/answer relevance, context precision/recall, latency percentiles, real provider error/cost behavior.
+- **Interpretation:** smoke/regression baseline only; **not** statistically meaningful and **not** evidence of production, domain, or enterprise quality/readiness. Future runs must record dataset version, config, method, environment, and any deviations before comparison.
