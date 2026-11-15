@@ -228,7 +228,22 @@ Implemented append-only audit trail with integrity protection in `src/audit.ts`:
 - Tests: `tests/audit.test.ts` (7 cases covering append/hash chain, integrity verification, hash sensitivity, payload redaction, maxEvents retention, seq range/limit reads).
 - Exports `AuditEvent`, `AuditEventType`, `AuditLog`, `AuditLogConfig`, `AuditRedactionLevel` types and `AuditLogImpl`, `createAuditLog` from `src/index.ts`.
 
-Next within Phase 13: **13.2 Erasure & residency**.
+Next within Phase 13: **13.2 Erasure & residency** ✅ done (below).
+
+### Phase 13.2 — Erasure & residency (complete)
+
+Implemented erasure cascade and residency enforcement in `src/erasure.ts`:
+
+- Added `ResidencyRule`, `ResidencyCheckResult`, `ErasureRequest`, `ErasureResult`, `ErasureService`, `ResidencyPolicy` types to `src/types.ts`.
+- Created `src/erasure.ts`:
+  - `DefaultResidencyPolicy` implements `ResidencyPolicy`: enforces that tenant data may only reside in the configured region; fail-closed on missing rule or region mismatch.
+  - `DefaultErasureService` implements `ErasureService`: cascades deletion across D1 (raw), D2 (vector), D4 (policy) stores, then runs a verification sweep checking for residual chunks; fail-closed on store failures or residual chunks.
+  - `createErasureService(d2Store)` and `createResidencyPolicy(rules)` factory functions.
+  - `checkResidency(policy, rule, targetRegion, tenantId)` helper.
+- Tests: `tests/erasure.test.ts` (8 cases covering residency allow/deny/cross-tenant, erasure cascade, store failure fail-closed, residual chunk detection, per-store results).
+- Exports `ErasureRequest`, `ErasureResult`, `ErasureService`, `ResidencyCheckResult`, `ResidencyPolicy`, `ResidencyRule` types and `DefaultErasureService`, `DefaultResidencyPolicy`, `createErasureService`, `createResidencyPolicy`, `checkResidency` from `src/index.ts`.
+
+Next within Phase 13: **13.3 Red-team suites**.
 
 ### Phase 11.3 — Reranking & thresholding (complete)
 
@@ -247,7 +262,7 @@ Implemented the existing `RetrievalReranker` hook with a concrete scorer and exp
 Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation ✅ done | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks ✅ done | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
-| 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail ✅ done · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
+| 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail ✅ done · 13.2 Erasure & residency ✅ done · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
 ### Dependencies and ordering
