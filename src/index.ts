@@ -43,12 +43,16 @@ export {
   validateChunkingOptions,
 } from './ingest.js';
 
-export type { EmbeddingCompatibility, EmbeddingProvider } from './embeddings.js';
+export type { EmbedChunksOptions, EmbeddingCompatibility, EmbeddingProvider } from './embeddings.js';
 export {
+  embedChunksWithValidation,
   validateEmbeddingCompatibility,
   validateEmbeddingsForChunks,
   validateQueryEmbedding,
 } from './embeddings.js';
+
+export type { RetryOptions } from './resilience.js';
+export { isRetryableProviderError, withRetry } from './resilience.js';
 
 export type { IndexedRecord, VectorStore } from './vector-store.js';
 export { MemoryVectorStore } from './memory-store.js';
