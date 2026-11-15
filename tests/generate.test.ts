@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { buildGroundedPrompt, citationsFromResults, formatEvidence, insufficientContextAnswer } from '../src/generate.js';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  buildGroundedPrompt,
+  citationsFromResults,
+  formatEvidence,
+  generateGroundedAnswer,
+  insufficientContextAnswer,
+} from '../src/generate.js';
 import type { RetrievalResult } from '../src/types.js';
 
 const result: RetrievalResult = {
@@ -41,5 +47,42 @@ describe('grounded prompt assembly', () => {
     expect(answer.insufficientContext).toBe(true);
     expect(answer.text).toMatch(/insufficient retrieved evidence/i);
     expect(answer.citations).toEqual(citations);
+  });
+});
+
+describe('generateGroundedAnswer', () => {
+  it('returns insufficient context when no evidence is retrieved', async () => {
+    const model = { model: 'm', generate: vi.fn() };
+    const res = await generateGroundedAnswer({ query: 'Question', context: [] }, { model });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.value.insufficientContext).toBe(true);
+      expect(res.value.citations).toEqual([]);
+    }
+    expect(model.generate).not.toHaveBeenCalled();
+  });
+
+  it('produces grounded answer with citations restricted to real retrieved sources', async () => {
+    const model = {
+      model: 'm',
+      generate: vi.fn(async () => ({
+        text: 'Remote work is allowed on Fridays [1].',
+        citedChunkIds: ['d::chunk::0', 'fabricated::chunk::99'],
+      })),
+    };
+
+    const res = await generateGroundedAnswer({ query: 'Policy?', context: [result] }, { model });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.insufficientContext).toBe(false);
+    expect(res.value.text).toContain('Remote work');
+    expect(res.value.citations.map((c) => c.chunkId)).toEqual(['d::chunk::0']);
+  });
+
+  it('treats model-declared insufficiency as insufficient context', async () => {
+    const model = { model: 'm', generate: vi.fn(async () => ({ text: 'unknown', insufficientContext: true })) };
+    const res = await generateGroundedAnswer({ query: 'Policy?', context: [result] }, { model });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.value.insufficientContext).toBe(true);
   });
 });
