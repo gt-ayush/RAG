@@ -56,3 +56,6 @@ export { isRetryableProviderError, withRetry } from './resilience.js';
 
 export type { IndexedRecord, VectorStore } from './vector-store.js';
 export { MemoryVectorStore } from './memory-store.js';
+
+export type { RetrieverDependencies, RetrieveRequest } from './retrieve.js';
+export { retrieve } from './retrieve.js';
