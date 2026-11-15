@@ -64,6 +64,46 @@ export interface RetrievalQuery {
   filters?: Record<string, unknown>;
 }
 
+/** Sparse vector representation: term indices and their weights. */
+export interface SparseVector {
+  /** Indices of non-zero dimensions (e.g. token IDs). */
+  indices: readonly number[];
+  /** Weight for each index (e.g. BM25 term weight). */
+  values: readonly number[];
+}
+
+/** Sparse embedding for a chunk (e.g. BM25 sparse vector). */
+export interface SparseEmbedding {
+  chunkId: ChunkId;
+  model: string;
+  sparseVector: SparseVector;
+}
+
+/** Result of sparse retrieval; reuses the same shape as dense results. */
+export type SparseRetrievalResult = RetrievalResult;
+
+/** Options controlling hybrid (dense + sparse) retrieval behavior. */
+export interface HybridRetrievalOptions {
+  /** Enable hybrid retrieval (dense + sparse with RRF fusion). Default false. */
+  enabled?: boolean;
+  /** RRF fusion constant k. Default 60. */
+  rrfK?: number;
+  /** Maximum number of candidates per retriever before fusion. */
+  candidateLimit?: number;
+}
+
+/** Sparse vector store for hybrid retrieval. Queries using sparse vectors
+ * (e.g. BM25) instead of dense embeddings. */
+export interface SparseVectorStore {
+  readonly kind: string;
+  /** Retrieve relevant chunks using a sparse vector; must apply trusted
+   * server-side filters before returning. */
+  query(
+    query: RetrievalQuery,
+    sparseVector: SparseVector,
+  ): Promise<Result<readonly SparseRetrievalResult[]>>;
+}
+
 /** Budget and behavior controls for query transformation. */
 export interface QueryTransformationOptions {
   /** Maximum number of variant queries to produce (including the original). */
