@@ -3,11 +3,15 @@ import { validateQueryEmbedding } from './embeddings.js';
 import type {
   Chunk,
   DocumentId,
+  HybridRetrievalOptions,
   QueryTransformationOptions,
   QueryTransformer,
   RetrievalQuery,
   RetrievalResult,
   Result,
+  SparseRetrievalResult,
+  SparseVector,
+  SparseVectorStore,
   ValidationIssue,
 } from './types.js';
 import type { VectorStore } from './vector-store.js';
@@ -50,6 +54,10 @@ export interface RetrieverDependencies {
    * variant is retrieved; results are merged via reciprocal-rank fusion.
    * When absent, the original query is used directly (bypass path). */
   queryTransformer?: QueryTransformer;
+  /** Optional sparse vector store for hybrid retrieval (e.g. BM25). */
+  sparseStore?: SparseVectorStore;
+  /** Options controlling hybrid (dense + sparse) retrieval. Default: dense only. */
+  hybridOptions?: HybridRetrievalOptions;
 }
 
 function authDenied(message: string): Result<never> {
@@ -94,17 +102,18 @@ function applyDocumentAllowList(
 }
 
 /**
- * Reciprocal-rank fusion (RRF) merge of results from multiple query variants.
- * Score = sum(1 / (k + rank)) across variants; k = 60 is the default.
- * Results are deduplicated by chunk id and re-ranked by fused score.
+ * Multi-source reciprocal-rank fusion (RRF). Fuses multiple ranked result
+ * sets into a single ranked list. Score = sum(1 / (k + rank)) across all
+ * sources; results are deduplicated by chunk id and re-ranked by fused score.
+ * k = 60 is the default.
  */
-function reciprocalRankFusion(
-  variantResults: readonly { variant: string; results: readonly RetrievalResult[] }[],
+function multiSourceRRF(
+  sources: readonly RetrievalResult[][],
   k: number,
 ): RetrievalResult[] {
   const byChunk = new Map<string, { chunk: Chunk; sourceId: DocumentId; rrfScore: number }>();
 
-  for (const { results } of variantResults) {
+  for (const results of sources) {
     for (const result of results) {
       const rrfContribution = 1 / (k + result.rank);
       const existing = byChunk.get(result.chunk.id);
@@ -192,6 +201,12 @@ export async function retrieve(
     }
   }
 
+  // Determine hybrid mode: enabled only when explicitly opted in AND a
+  // sparse store is provided. Dense-only remains the default baseline path.
+  const hybrid = deps.hybridOptions?.enabled === true && !!deps.sparseStore;
+  const rrfK = deps.hybridOptions?.rrfK ?? 60;
+  const candidateLimit = deps.hybridOptions?.candidateLimit ?? 50;
+
   // Embed all variants with the same provider; validate model/dimensions.
   let embeddings;
   try {
@@ -201,9 +216,15 @@ export async function retrieve(
     return { ok: false, issues: [{ path: 'embeddingProvider', message }] };
   }
 
-  // Retrieve for each variant and collect per-variant results.
+  // Collect ranked results from all variants and (when hybrid) all modalities.
+  // Each entry carries its rank within its (variant, modality) result set for
+  // reciprocal-rank fusion.
+  type RankedEntry = { result: RetrievalResult; source: string; rank: number };
+  const allRanked: RankedEntry[] = [];
+
   const tenantId = authorized.value.tenantId;
-  const variantResults: Array<{ variant: string; results: readonly RetrievalResult[] }> = [];
+  const emptySparse: SparseVector = { indices: [], values: [] };
+
   for (const [i, variant] of variants.entries()) {
     const queryEmbedding = embeddings[i];
     if (!queryEmbedding) continue;
@@ -217,33 +238,64 @@ export async function retrieve(
       ...(tenantId ? { tenantId } : {}),
     };
 
-    const retrieved = await deps.vectorStore.query(scopedRequest, validated.value);
-    if (!retrieved.ok) continue;
+    // Dense retrieval for this variant.
+    const denseRetrieved = await deps.vectorStore.query(scopedRequest, validated.value);
+    if (!denseRetrieved.ok) continue;
 
-    variantResults.push({ variant, results: retrieved.value });
+    const denseCandidates = denseRetrieved.value.slice(0, candidateLimit);
+    for (const [idx, result] of denseCandidates.entries()) {
+      allRanked.push({ result, source: `dense:${variant}`, rank: idx + 1 });
+    }
+
+    // Sparse retrieval for this variant (hybrid mode only).
+    if (hybrid && deps.sparseStore) {
+      try {
+        const sparseRetrieved = await deps.sparseStore.query(scopedRequest, emptySparse);
+        if (sparseRetrieved.ok) {
+          const sparseCandidates = sparseRetrieved.value.slice(0, candidateLimit);
+          for (const [idx, result] of sparseCandidates.entries()) {
+            allRanked.push({ result, source: `sparse:${variant}`, rank: idx + 1 });
+          }
+        }
+      } catch {
+        // Sparse retrieval failure does not fail the whole query; dense
+        // results are still fused and returned.
+      }
+    }
   }
 
-  if (variantResults.length === 0) {
-    return {
-      ok: false,
-      issues: [{ path: 'retrieval', message: 'no results retrieved for any query variant' }],
-    };
+  if (allRanked.length === 0) {
+    return { ok: true, value: [] };
   }
 
-  // Merge results: RRF when multiple variants were retrieved, otherwise use
-  // the single variant's results directly.
+  // Merge results: RRF across all (variant, modality) result sets when hybrid
+  // or multiple variants; otherwise use the single dense result set directly.
   let merged: RetrievalResult[];
-  if (variantResults.length > 1 && deps.queryTransformer) {
-    merged = reciprocalRankFusion(variantResults, 60);
+  if (hybrid || allRanked.length > variants.length) {
+    // Group by source for RRF: each source is one ranked result set.
+    const bySource = new Map<string, RetrievalResult[]>();
+    for (const entry of allRanked) {
+      const existing = bySource.get(entry.source);
+      if (existing) {
+        existing.push(entry.result);
+      } else {
+        bySource.set(entry.source, [entry.result]);
+      }
+    }
+    const sourceArrays = [...bySource.values()];
+    // Multi-source RRF: fuse all ranked result sets.
+    merged = multiSourceRRF(sourceArrays, rrfK);
   } else {
-    const first = variantResults[0];
+    const first = allRanked[0];
     if (!first) {
       return {
         ok: false,
         issues: [{ path: 'retrieval', message: 'no results retrieved' }],
       };
     }
-    merged = first.results.map((r, idx) => ({ ...r, rank: idx + 1 }));
+    merged = allRanked
+      .filter((e) => e.source === first.source)
+      .map((e, idx) => ({ ...e.result, rank: idx + 1 }));
   }
 
   // Apply document allowlist (server-side), then optional reranker, then cap.
