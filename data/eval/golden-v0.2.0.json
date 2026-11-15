@@ -1,0 +1,156 @@
+{
+  "version": "0.2.0",
+  "name": "rag-golden-representative-smoke",
+  "createdAt": "2026-11-15",
+  "description": "Expanded synthetic smoke dataset for representative RAG pipeline verification. Still synthetic and small-sample; suitable for regression/delta checks, not quality claims.",
+  "source": "Synthetic examples authored for repository baseline testing; no external/customer/regulated documents included.",
+  "limitations": [
+    "Small sample size (10 cases); suitable only for smoke/regression deltas, not quality claims.",
+    "Synthetic, plain-text content only; does not cover PDF/HTML/DOCX/EML, OCR, tables, multi-tenant data, or financial-services terminology.",
+    "Expected answers/evidence are illustrative and may not capture all acceptable grounded responses.",
+    "No human adjudication study; relevance judgments are provisional.",
+    "Deterministic mock embeddings/model; not representative of real provider latency, cost, or quality."
+  ],
+  "cases": [
+    {
+      "id": "smoke-001",
+      "query": "What day is remote work allowed?",
+      "documents": [
+        {
+          "id": "doc-policy-remote",
+          "source": "synthetic://policy/remote-work.txt",
+          "content": "Company Policy\nRemote work is allowed on Fridays.\nEmployees must notify their manager in advance."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-remote"],
+      "expectedAnswer": "Remote work is allowed on Fridays.",
+      "notes": "Single-fact grounded answer."
+    },
+    {
+      "id": "smoke-002",
+      "query": "What is the maximum password age?",
+      "documents": [
+        {
+          "id": "doc-policy-security",
+          "source": "synthetic://policy/security.txt",
+          "content": "Security Policy\nPasswords must be at least 12 characters.\nThe maximum password age is 90 days.\nMFA is required for VPN access."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-security"],
+      "expectedAnswer": "The maximum password age is 90 days.",
+      "notes": "Fact extraction from multi-sentence policy text."
+    },
+    {
+      "id": "smoke-003",
+      "query": "What is the company's parental leave policy?",
+      "documents": [
+        {
+          "id": "doc-policy-remote",
+          "source": "synthetic://policy/remote-work.txt",
+          "content": "Company Policy\nRemote work is allowed on Fridays.\nEmployees must notify their manager in advance."
+        }
+      ],
+      "relevantDocumentIds": [],
+      "expectedAnswer": "Insufficient retrieved evidence to answer the question.",
+      "notes": "Insufficient-context/negative case; relevant evidence absent."
+    },
+    {
+      "id": "smoke-004",
+      "query": "How many characters must a password have at minimum?",
+      "documents": [
+        {
+          "id": "doc-policy-security",
+          "source": "synthetic://policy/security.txt",
+          "content": "Security Policy\nPasswords must be at least 12 characters.\nThe maximum password age is 90 days.\nMFA is required for VPN access."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-security"],
+      "expectedAnswer": "Passwords must be at least 12 characters.",
+      "notes": "Fact extraction from first sentence of policy text."
+    },
+    {
+      "id": "smoke-005",
+      "query": "Is MFA required for VPN access?",
+      "documents": [
+        {
+          "id": "doc-policy-security",
+          "source": "synthetic://policy/security.txt",
+          "content": "Security Policy\nPasswords must be at least 12 characters.\nThe maximum password age is 90 days.\nMFA is required for VPN access."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-security"],
+      "expectedAnswer": "Yes, MFA is required for VPN access.",
+      "notes": "Yes/no grounded answer."
+    },
+    {
+      "id": "smoke-006",
+      "query": "What is the dress code for remote Fridays?",
+      "documents": [
+        {
+          "id": "doc-policy-remote",
+          "source": "synthetic://policy/remote-work.txt",
+          "content": "Company Policy\nRemote work is allowed on Fridays.\nEmployees must notify their manager in advance."
+        }
+      ],
+      "relevantDocumentIds": [],
+      "expectedAnswer": "Insufficient retrieved evidence to answer the question.",
+      "notes": "Insufficient-context/negative case; dress code not in evidence."
+    },
+    {
+      "id": "smoke-007",
+      "query": "Do employees need to notify their manager before working remotely?",
+      "documents": [
+        {
+          "id": "doc-policy-remote",
+          "source": "synthetic://policy/remote-work.txt",
+          "content": "Company Policy\nRemote work is allowed on Fridays.\nEmployees must notify their manager in advance."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-remote"],
+      "expectedAnswer": "Yes, employees must notify their manager in advance.",
+      "notes": "Grounded answer requiring combining two sentences."
+    },
+    {
+      "id": "smoke-008",
+      "query": "What is the vacation accrual policy?",
+      "documents": [
+        {
+          "id": "doc-policy-vacation",
+          "source": "synthetic://policy/vacation.txt",
+          "content": "Vacation Policy\nEmployees accrue 1.5 vacation days per month.\nUnused vacation carries over up to 5 days per year.\nVacation requests require manager approval."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-vacation"],
+      "expectedAnswer": "Employees accrue 1.5 vacation days per month.",
+      "notes": "Separate document not present in earlier cases."
+    },
+    {
+      "id": "smoke-009",
+      "query": "Can unused vacation carry over?",
+      "documents": [
+        {
+          "id": "doc-policy-vacation",
+          "source": "synthetic://policy/vacation.txt",
+          "content": "Vacation Policy\nEmployees accrue 1.5 vacation days per month.\nUnused vacation carries over up to 5 days per year.\nVacation requests require manager approval."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-vacation"],
+      "expectedAnswer": "Yes, unused vacation carries over up to 5 days per year.",
+      "notes": "Fact extraction from second sentence of policy text."
+    },
+    {
+      "id": "smoke-010",
+      "query": "What is the maximum password age in days?",
+      "documents": [
+        {
+          "id": "doc-policy-security",
+          "source": "synthetic://policy/security.txt",
+          "content": "Security Policy\nPasswords must be at least 12 characters.\nThe maximum password age is 90 days.\nMFA is required for VPN access."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-security"],
+      "expectedAnswer": "90 days.",
+      "notes": "Fact extraction with unit-specific answer."
+    }
+  ]
+}
