@@ -1,0 +1,244 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as http from 'http';
+import { createHttpServer } from '../src/server.js';
+import type { ServerDependencies } from '../src/server.js';
+import type { Chunk, Embedding, ModelGeneration, RetrievalResult } from '../src/types.js';
+import type { LanguageModel } from '../src/generate.js';
+import type { EmbeddingProvider } from '../src/embeddings.js';
+import type { VectorStore } from '../src/vector-store.js';
+import { createStructuredLogger, MetricsRecorder } from '../src/observability.js';
+
+function makeChunk(id: string, docId: string, content: string): Chunk {
+  return {
+    id,
+    documentId: docId,
+    content,
+    index: 0,
+    metadata: {
+      documentId: docId,
+      source: `${docId}.txt`,
+      chunkId: id,
+      chunkIndex: 0,
+    },
+  };
+}
+
+function makeEmbedding(id: string, vector: number[]): Embedding {
+  return {
+    chunkId: id,
+    model: 'test-embed',
+    dimensions: vector.length,
+    vector,
+  };
+}
+
+function makeResult(chunk: Chunk, score: number, rank = 0): RetrievalResult {
+  return { chunk, score, rank, sourceId: chunk.documentId };
+}
+
+function startTestServer(overrides: Partial<ServerDependencies> = {}): Promise<{ port: number; server: ReturnType<typeof import('http').createServer>; deps: ServerDependencies }> {
+  const deps: ServerDependencies = {
+    config: {
+      llm: { apiKey: 'test-key', model: 'test-lm' },
+      vectorDb: { url: 'http://localhost:6333' },
+      embedding: { model: 'test-embed' },
+    },
+    embeddingProvider: {
+      model: 'test-embed',
+      dimensions: 2,
+      embedTexts: vi.fn(async (texts) => texts.map((_, i) => makeEmbedding(`q:${i}`, [0.5, 0.5]))),
+    } as EmbeddingProvider,
+    vectorStore: {
+      kind: 'test',
+      dimensions: 2,
+      query: vi.fn(async () => ({ ok: true, value: [] as RetrievalResult[] })),
+    } as VectorStore,
+    languageModel: {
+      model: 'test-lm',
+      generate: vi.fn(async () => ({ text: 'generated answer', insufficientContext: false })),
+    } as LanguageModel,
+    logger: createStructuredLogger(),
+    metrics: new MetricsRecorder(),
+    ...overrides,
+  };
+
+  const server = createHttpServer(deps);
+  return new Promise((resolve) => {
+    server.listen(0, () => {
+      const port = (server.address() as { port: number }).port;
+      resolve({ port, server, deps });
+    });
+  });
+}
+
+function request(port: number, method: string, path: string, body?: unknown, rawBody?: string): Promise<{ status: number; body: unknown }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        method,
+        path,
+        headers: rawBody ? { 'Content-Type': 'application/json' } : body ? { 'Content-Type': 'application/json' } : {},
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          let parsed: unknown;
+          try {
+            parsed = data ? JSON.parse(data) : undefined;
+          } catch {
+            parsed = data;
+          }
+          resolve({ status: res.statusCode ?? 0, body: parsed });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (rawBody) {
+      req.write(rawBody);
+    } else if (body) {
+      req.write(JSON.stringify(body));
+    }
+    req.end();
+  });
+}
+
+describe('HTTP server boundary', () => {
+  let servers: Array<ReturnType<typeof import('http').createServer>> = [];
+
+  afterEach(() => {
+    for (const server of servers) {
+      server.close();
+    }
+    servers = [];
+    vi.restoreAllMocks();
+  });
+
+  it('GET /health returns ok', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/health');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'ok' });
+  });
+
+  it('GET /ready returns ready when deps wired', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/ready');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ status: 'ready' });
+  });
+
+  it('POST /query runs pipeline and returns answer', async () => {
+    const chunk = makeChunk('c1', 'd1', 'remote work policy for employees');
+    const result = makeResult(chunk, 0.9, 1);
+    const { port, server, deps } = await startTestServer({
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: vi.fn(async () => ({ ok: true, value: [result] })),
+      } as VectorStore,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'remote work policy', topK: 5 });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      answer: {
+        text: 'generated answer',
+        insufficientContext: false,
+      },
+      retrieved: [
+        { chunkId: 'c1', sourceId: 'd1', score: 0.9, rank: 1 },
+      ],
+    });
+    expect(deps.embeddingProvider.embedTexts).toHaveBeenCalledTimes(1);
+  });
+
+  it('POST /query returns insufficient context when no results', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'nothing matches' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      answer: {
+        insufficientContext: true,
+        citations: [],
+      },
+      retrieved: [],
+    });
+  });
+
+  it('POST /query rejects missing query with 400', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { topK: 5 });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: { code: 'validation_error' } });
+    expect(JSON.stringify(res.body)).not.toContain('secret');
+  });
+
+  it('POST /query rejects invalid topK with 400', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: -1 });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: { code: 'validation_error' } });
+  });
+
+  it('POST /query rejects non-JSON body with 400', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', undefined, 'not-json');
+    expect(res.status).toBe(400);
+    const parsed = res.body as { error: { code: string } };
+    expect(parsed.error.code).toBe('bad_request');
+  });
+
+  it('unknown endpoint returns 404', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/unknown');
+    expect(res.status).toBe(404);
+    expect(res.body).toMatchObject({ error: { code: 'not_found' } });
+  });
+
+  it('GET /ready returns unavailable when deps missing', async () => {
+    const server = createHttpServer({
+      config: {
+        llm: { apiKey: 'test-key', model: 'test-lm' },
+        vectorDb: { url: 'http://localhost:6333' },
+        embedding: { model: 'test-embed' },
+      },
+      embeddingProvider: undefined as unknown as EmbeddingProvider,
+      vectorStore: undefined as unknown as VectorStore,
+      languageModel: undefined as unknown as LanguageModel,
+      logger: createStructuredLogger(),
+      metrics: new MetricsRecorder(),
+    });
+    servers.push(server);
+
+    return new Promise((resolve) => {
+      server.listen(0, () => {
+        const port = (server.address() as { port: number }).port;
+        request(port, 'GET', '/ready').then((res) => {
+          expect(res.status).toBe(503);
+          expect(res.body).toEqual({ status: 'unavailable' });
+          resolve(undefined);
+        });
+      });
+    });
+  });
+});
