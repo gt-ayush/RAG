@@ -94,6 +94,20 @@ export interface GeneratedAnswer {
   insufficientContext: boolean;
 }
 
+/** Configuration for an embedding provider that returns vectors to the caller. */
+export interface EmbeddingProviderConfig {
+  /** Base URL of an OpenAI-compatible embeddings API (e.g. https://api.openai.com/v1). */
+  baseUrl: string;
+  /** Model identifier sent to the provider; pinned and checked against responses. */
+  model: string;
+  /** Expected embedding dimensionality; mismatches fail closed. */
+  dimensions: number;
+  /** Optional provider API key; never logged or included in error messages. */
+  apiKey?: string;
+  /** Per-request timeout in milliseconds. */
+  timeoutMs?: number;
+}
+
 export interface PipelineConfig {
   llm: {
     apiKey: string;
@@ -105,6 +119,14 @@ export interface PipelineConfig {
   };
   embedding: {
     model: string;
+    /** Optional embeddings API base URL (OpenAI-compatible providers). */
+    baseUrl?: string;
+    /** Optional expected embedding dimensions. */
+    dimensions?: number;
+    /** Optional embeddings API key. */
+    apiKey?: string;
+    /** Optional per-request timeout in milliseconds. */
+    timeoutMs?: number;
   };
 }
 
