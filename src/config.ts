@@ -44,6 +44,8 @@ export function parsePipelineConfig(env: Env): Result<PipelineConfig> {
 
   const llmApiKey = readRequired(env, 'LLM_API_KEY', issues);
   const llmModel = readRequired(env, 'LLM_MODEL', issues);
+  const llmBaseUrl = readOptional(env, 'LLM_BASE_URL');
+  const llmTimeoutMs = readOptional(env, 'LLM_TIMEOUT_MS');
   const vectorDbUrl = readRequired(env, 'VECTOR_DB_URL', issues);
   const vectorDbApiKey = readOptional(env, 'VECTOR_DB_API_KEY');
   const embeddingModel = readRequired(env, 'EMBEDDING_MODEL', issues);
@@ -74,6 +76,17 @@ export function parsePipelineConfig(env: Env): Result<PipelineConfig> {
     }
   }
 
+  if (llmBaseUrl) {
+    validateUrl(llmBaseUrl, 'LLM_BASE_URL', issues);
+  }
+
+  if (llmTimeoutMs) {
+    const parsed = Number(llmTimeoutMs);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      issues.push({ path: 'LLM_TIMEOUT_MS', message: 'must be a positive integer' });
+    }
+  }
+
   if (issues.length > 0) {
     return { ok: false, issues };
   }
@@ -83,6 +96,8 @@ export function parsePipelineConfig(env: Env): Result<PipelineConfig> {
     llm: {
       apiKey: llmApiKey as string,
       model: llmModel as string,
+      ...(llmBaseUrl ? { baseUrl: llmBaseUrl } : {}),
+      ...(llmTimeoutMs ? { timeoutMs: Number(llmTimeoutMs) } : {}),
     },
     vectorDb: {
       url: vectorDbUrl as string,
