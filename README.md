@@ -20,6 +20,7 @@ A TypeScript-based RAG (Retrieval-Augmented Generation) project with a **working
 - Rich document parsing (PDF/HTML/DOCX/EML/XLSX/OCR/tables), hybrid sparse+dense retrieval, BM25/RRF, cross-encoder reranking, and measured quality improvements on representative datasets.
 - End-to-end authenticated service boundary, durable multi-tenant ACL enforcement, centralized audit/security logging, GDPR erasure cascade verification, data residency enforcement, and production SLO/HA/DR evidence.
 - Enterprise architecture in `docs/01-03`/`plan.md` is a **target design** (Financial Services, AWS, SOC 2 Type II + GDPR, 10M+ docs) — not proof of implementation or compliance.
+- The remaining work is tracked as forward phases (10–14: real providers/stores, retrieval quality, service boundary, security evidence, realistic performance/release) in `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17.
 
 ## Project structure (current)
 
@@ -172,6 +173,8 @@ Production-grade **design** deliverables (not implemented): Financial Services d
 | 4 | Spiral SDLC plan (3 loops × 4 quadrants) | `docs/03_spiral_sdlc_plan.md` |
 
 Additional implemented-baseline docs: `docs/04_evaluation_methodology.md`, `docs/05_evaluation_baseline.md`, `docs/06_security_threat_control_review.md`, `docs/07_compliance_gap_assessment.md`, `docs/08_operations_baseline.md`, `docs/09_observability_runtime_controls.md`, `docs/10_deployment_cost_readiness.md`.
+
+Phase status and forward roadmap: `docs/11_phase_status_and_roadmap.md` (completed baseline 0–9 with evidence, known limits, and remaining phases 10–14).
 
 ## Contributing
 
