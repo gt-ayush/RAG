@@ -398,3 +398,77 @@ export interface AuditLogConfig {
   /** Retention period in days; events older than this are dropped on append. */
   retentionDays?: number;
 }
+
+/** Region-residency rule for a tenant/corpus. */
+export interface ResidencyRule {
+  /** Region where data must reside (e.g. 'us-east-1', 'eu-west-1'). */
+  region: string;
+  /** Tenant scope this rule applies to. */
+  tenantId: string;
+  /** Data classification tier this rule applies to. */
+  tier?: 'Public' | 'Internal' | 'Confidential' | 'Restricted(PII)';
+}
+
+/** Result of a residency check. */
+export interface ResidencyCheckResult {
+  /** Whether the operation is allowed under residency rules. */
+  allowed: boolean;
+  /** Reason for the decision (for auditing). */
+  reason: string;
+  /** Region the data would reside in. */
+  region?: string;
+  /** Rule that was applied. */
+  matchedRule?: ResidencyRule;
+}
+
+/** Request to erase a document across all stores (D1 raw, D2 vector, D4 policy). */
+export interface ErasureRequest {
+  /** Document identifier to erase. */
+  documentId: DocumentId;
+  /** Tenant performing the erasure (trusted, server-side). */
+  tenantId: string;
+  /** Legal basis for erasure (e.g. 'gdpr-article-17'). */
+  legalBasis?: string;
+  /** Requested completion deadline (ISO-8601). */
+  deadline?: string;
+}
+
+/** Result of an erasure cascade operation. */
+export interface ErasureResult {
+  /** Whether erasure completed successfully. */
+  ok: boolean;
+  /** Document id that was targeted. */
+  documentId: DocumentId;
+  /** Timestamp when erasure was initiated (ISO-8601). */
+  initiatedAt: string;
+  /** Per-store erasure results. */
+  storeResults: Array<{
+    store: 'D1' | 'D2' | 'D4';
+    deleted: number;
+    ok: boolean;
+    issues?: readonly ValidationIssue[];
+  }>;
+  /** Verification sweep result: residual chunks found after erasure. */
+  residualChunkCount: number;
+  /** Issues encountered during erasure (non-sensitive). */
+  issues?: readonly ValidationIssue[];
+}
+
+/**
+ * Enforces region/tenant residency rules for storage operations.
+ * Implementations must fail closed: on error or uncertainty, return allowed=false.
+ */
+export type ResidencyPolicy = (
+  rule: ResidencyRule,
+  targetRegion: string,
+  tenantId: string,
+) => Promise<ResidencyCheckResult> | ResidencyCheckResult;
+
+/**
+ * Enforces erasure cascade across all stores (D1 raw, D2 vector, D4 policy)
+ * with verification sweep. Implementations must fail closed: any residual
+ * chunks after erasure cause ok=false.
+ */
+export type ErasureService = (
+  request: ErasureRequest,
+) => Promise<ErasureResult>;
