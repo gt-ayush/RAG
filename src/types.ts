@@ -539,3 +539,87 @@ export interface RuntimeControlsMetrics {
   circuitBreaker: CircuitBreakerMetrics;
   cache: CacheMetrics;
 }
+
+/** Cost tracking for a single embedding operation. */
+export interface EmbeddingCost {
+  /** Number of tokens processed. */
+  tokenCount: number;
+  /** Cost in USD (or provider currency). */
+  cost: number;
+  /** Provider-specific model name. */
+  model: string;
+}
+
+/** Cost tracking for a single LLM generation operation. */
+export interface GenerationCost {
+  /** Number of input tokens. */
+  inputTokens: number;
+  /** Number of output tokens. */
+  outputTokens: number;
+  /** Cost in USD (or provider currency). */
+  cost: number;
+  /** Provider-specific model name. */
+  model: string;
+}
+
+/** Cost tracking for a single ingestion operation (embedding + indexing). */
+export interface IngestionCost {
+  /** Number of chunks processed. */
+  chunkCount: number;
+  /** Total embedding cost. */
+  embeddingCost: number;
+  /** Total indexing/vector store write cost. */
+  indexingCost: number;
+  /** Total cost (embedding + indexing). */
+  totalCost: number;
+}
+
+/** Cost tracking for a single query operation (embedding + retrieval + generation). */
+export interface QueryCost {
+  /** Embedding cost for the query. */
+  embeddingCost: number;
+  /** Vector search cost. */
+  retrievalCost: number;
+  /** Generation cost (LLM). */
+  generationCost: number;
+  /** Total cost (embedding + retrieval + generation). */
+  totalCost: number;
+}
+
+/** Configuration for cost tracking (provider pricing). */
+export interface CostConfig {
+  /** Cost per 1K tokens for embedding model input. */
+  embeddingCostPer1kTokens: number;
+  /** Cost per 1K tokens for LLM input. */
+  llmInputCostPer1kTokens: number;
+  /** Cost per 1K tokens for LLM output. */
+  llmOutputCostPer1kTokens: number;
+  /** Cost per 1K vectors for vector store writes. */
+  vectorWriteCostPer1kVectors: number;
+  /** Cost per 1K vectors for vector store reads. */
+  vectorReadCostPer1kVectors: number;
+}
+
+/** Aggregated cost metrics across multiple operations. */
+export interface CostMetrics {
+  /** Total cost in USD (or provider currency). */
+  totalCost: number;
+  /** Total embedding cost. */
+  totalEmbeddingCost: number;
+  /** Total generation cost. */
+  totalGenerationCost: number;
+  /** Total indexing cost. */
+  totalIndexingCost: number;
+  /** Total retrieval cost. */
+  totalRetrievalCost: number;
+  /** Cost per query (total cost / query count). */
+  costPerQuery: number;
+  /** Cost per ingestion (total cost / ingestion count). */
+  costPerIngestion: number;
+  /** Total number of queries processed. */
+  queryCount: number;
+  /** Total number of ingestion operations. */
+  ingestionCount: number;
+  /** Total number of tokens processed (embedding + generation input + output). */
+  totalTokenCount: number;
+}
