@@ -80,3 +80,18 @@ export {
   generateGroundedAnswer,
   insufficientContextAnswer,
 } from './generate.js';
+
+export type {
+  CaseRetrievalMetrics,
+  GoldenCase,
+  GoldenDataset,
+  GoldenDocument,
+  RetrievalAggregateMetrics,
+} from './eval.js';
+export {
+  aggregateRetrievalMetrics,
+  loadGoldenDataset,
+  recallAtK,
+  reciprocalRank,
+  retrievedSourceIds,
+} from './eval.js';
