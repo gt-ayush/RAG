@@ -56,7 +56,21 @@ Canonical sub-phase definitions and exit criteria are in `AGENTS.md` §17. Summa
 
 | Phase | Goal | Sub-phases | Exit signal |
 |---|---|---|---|
-| 10 — Real Providers and Persistent Stores | Replace mocks/in-memory with configured integrations behind existing interfaces | 10.1 Embedding adapter · 10.2 Vector store adapter · 10.3 LLM gateway adapter · 10.4 Integration tests & setup docs | Adapters honor existing contracts; model/dimension checks enforced; failures explicit (no silent fallback); setup docs accurate; any paid/external usage explicitly authorized and measured |
+| 10 — Real Providers and Persistent Stores | Replace mocks/in-memory with configured integrations behind existing interfaces | 10.1 Embedding adapter ✅ done · 10.2 Vector store adapter · 10.3 LLM gateway adapter · 10.4 Integration tests & setup docs | Adapters honor existing contracts; model/dimension checks enforced; failures explicit (no silent fallback); setup docs accurate; any paid/external usage explicitly authorized and measured |
+
+### Phase 10.1 — Embedding adapter (complete)
+
+Implemented `src/embedding-provider.ts` — a generic OpenAI-compatible HTTP embeddings adapter behind the existing `EmbeddingProvider` contract:
+
+- `HttpEmbeddingProvider` POSTs `input` + `model` to `{baseUrl}/embeddings` and returns typed `Embedding[]` (chunk ids derived from call order / chunk id).
+- Enforces model/version pinning and dimensions against responses; rejects mismatches.
+- Per-request timeout via `AbortController`; bounded retries for transient 429/5xx via existing `withRetry`/`isRetryableProviderError`.
+- Fail-closed: provider failures surface as thrown errors (caller converts to `Result` issues), no partial success, no silent fallback.
+- Secrets: API key sent in `Authorization: Bearer` header, never logged or echoed in error messages.
+- Tests: `tests/embedding-provider.test.ts` (11 cases, mocked `fetch` — no paid provider quota used).
+- Config: optional `EMBEDDING_BASE_URL`, `EMBEDDING_DIMENSIONS`, `EMBEDDING_API_KEY`, `EMBEDDING_TIMEOUT_MS` parsed by `parsePipelineConfig` (`.env.example` updated).
+
+Next within Phase 10: **10.2 Vector store adapter** (Qdrant Cloud store using `@qdrant/js-client-rest`, already a dependency).
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation · 11.2 Sparse/hybrid + fusion · 11.3 Reranking & thresholding · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
