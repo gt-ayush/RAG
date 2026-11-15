@@ -156,6 +156,45 @@ export interface RerankerResult {
   hasEvidence: boolean;
 }
 
+/** Resolved principal from a trusted authentication source (e.g. JWT, session). */
+export interface AuthorizationPrincipal {
+  /** Trusted tenant identity resolved server-side; never from client input. */
+  tenantId: string;
+  /** Optional set of document IDs the principal is allowed to access. */
+  allowedDocumentIds?: readonly string[];
+  /** Optional roles granted to the principal. */
+  roles?: readonly string[];
+}
+
+/** Policy decision for an authorization request. */
+export interface AuthorizationDecision {
+  /** True when the principal is authorized for the request. */
+  allowed: boolean;
+  /** Reason for the decision, for auditing. */
+  reason: string;
+  /** Tenant scope to enforce, if allowed. */
+  tenantId?: string;
+  /** Document allow-list to enforce, if allowed. */
+  allowedDocumentIds?: readonly string[];
+}
+
+/**
+ * Evaluates authorization for a retrieval request against a trusted principal.
+ * Implementations must fail closed: on error or uncertainty, return allowed=false.
+ */
+export type AuthorizationPolicy = (
+  principal: AuthorizationPrincipal,
+  request: RetrievalQuery,
+) => Promise<AuthorizationDecision> | AuthorizationDecision;
+
+/** Configuration for the tenant authorization policy. */
+export interface TenantAuthorizationPolicyConfig {
+  /** Tenant ID that the principal must belong to. */
+  tenantId: string;
+  /** Optional allow-list of document IDs the principal may access. */
+  allowedDocumentIds?: readonly string[];
+}
+
 export interface Citation {
   sourceId: DocumentId;
   chunkId: ChunkId;
