@@ -141,6 +141,21 @@ export interface RetrievalResult {
   sourceId: DocumentId;
 }
 
+/** Options controlling reranking behavior and the empty-context refusal threshold. */
+export interface RerankerConfig {
+  /** Minimum score a result must have to be kept after reranking. */
+  minScore?: number;
+  /** Maximum number of results to return after reranking. */
+  maxResults?: number;
+}
+
+/** Result of reranking: re-ranked results plus whether any passed the threshold. */
+export interface RerankerResult {
+  results: readonly RetrievalResult[];
+  /** True when at least one result passed the minScore threshold. */
+  hasEvidence: boolean;
+}
+
 export interface Citation {
   sourceId: DocumentId;
   chunkId: ChunkId;
