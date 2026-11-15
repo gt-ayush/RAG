@@ -64,6 +64,35 @@ export interface RetrievalQuery {
   filters?: Record<string, unknown>;
 }
 
+/** Budget and behavior controls for query transformation. */
+export interface QueryTransformationOptions {
+  /** Maximum number of variant queries to produce (including the original). */
+  maxVariants?: number;
+  /** Maximum tokens allowed per variant query. */
+  maxTokensPerVariant?: number;
+  /** Per-transformation timeout in milliseconds. */
+  timeoutMs?: number;
+}
+
+/** Result of a query transformation: variant queries to retrieve against. */
+export interface QueryTransformationResult {
+  /** Variant queries (should include the original query for completeness). */
+  variants: readonly string[];
+  /** Whether the transformer was applied or bypassed. */
+  applied: boolean;
+}
+
+/**
+ * Transforms a user query into variant queries for retrieval (rewrite,
+ * decompose, expand). Implementations must respect the budget options and
+ * never return more than maxVariants variants. Failures should be surfaced
+ * as Result issues; the caller falls back to the original query.
+ */
+export type QueryTransformer = (
+  query: string,
+  options: QueryTransformationOptions,
+) => Promise<Result<QueryTransformationResult>>;
+
 export interface RetrievalResult {
   chunk: Chunk;
   /** Similarity/ranking score from retrieval/reranking; not a calibrated probability. */
