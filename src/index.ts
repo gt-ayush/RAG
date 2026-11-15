@@ -42,3 +42,12 @@ export {
   parseSourceFile,
   validateChunkingOptions,
 } from './ingest.js';
+
+export type { EmbeddingCompatibility, EmbeddingProvider } from './embeddings.js';
+export {
+  validateEmbeddingCompatibility,
+  validateEmbeddingsForChunks,
+  validateQueryEmbedding,
+} from './embeddings.js';
+
+export type { IndexedRecord, VectorStore } from './vector-store.js';
