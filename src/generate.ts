@@ -1,10 +1,26 @@
-import type { Citation, GeneratedAnswer, GenerationRequest, RetrievalResult } from './types.js';
+import type { Citation, GeneratedAnswer, GenerationRequest, RetrievalResult, Result } from './types.js';
 
 export interface GroundedPrompt {
   system: string;
   user: string;
   /** Retrieved documents formatted as untrusted evidence only. */
   evidence: string;
+}
+
+export interface ModelGeneration {
+  text: string;
+  /** Optional chunk IDs the model claims to cite; must be validated against retrieved evidence. */
+  citedChunkIds?: readonly string[];
+  insufficientContext?: boolean;
+}
+
+export interface LanguageModel {
+  readonly model: string;
+  generate(prompt: GroundedPrompt): Promise<ModelGeneration>;
+}
+
+export interface GenerateDependencies {
+  model: LanguageModel;
 }
 
 const UNTRUSTED_EVIDENCE_WARNING =
@@ -33,8 +49,8 @@ export function buildGroundedPrompt(request: GenerationRequest): GroundedPrompt 
   const system = [
     'You are a grounded assistant.',
     'Answer using only the provided retrieved evidence.',
-    'If evidence is missing, insufficient, or contradictory, state that clearly and do not invent facts.',
-    'Cite sources from the provided evidence when making supported claims.',
+    'If evidence is missing, insufficient, contradictory, or irrelevant, state that clearly and do not invent facts.',
+    'Cite sources only from the provided evidence when making supported claims.',
     UNTRUSTED_EVIDENCE_WARNING,
   ].join(' ');
 
@@ -65,5 +81,61 @@ export function insufficientContextAnswer(
     text: `Insufficient retrieved evidence to answer: "${query}".`,
     citations: citationsFromResults(results),
     insufficientContext: true,
+  };
+}
+
+function selectCitations(
+  context: readonly RetrievalResult[],
+  citedChunkIds?: readonly string[],
+): Citation[] {
+  if (!citedChunkIds || citedChunkIds.length === 0) {
+    return citationsFromResults(context);
+  }
+  const allowed = new Set(context.map((r) => r.chunk.id));
+  const selected = context.filter((r) => citedChunkIds.includes(r.chunk.id) && allowed.has(r.chunk.id));
+  return citationsFromResults(selected.length > 0 ? selected : context);
+}
+
+/**
+ * Generate a grounded answer from retrieved evidence.
+ * Citations are restricted to real retrieved sources; empty/insufficient context
+ * yields an explicit insufficient-context response.
+ */
+export async function generateGroundedAnswer(
+  request: GenerationRequest,
+  deps: GenerateDependencies,
+): Promise<Result<GeneratedAnswer>> {
+  const query = request.query?.trim() ?? '';
+  if (!query) {
+    return { ok: false, issues: [{ path: 'query', message: 'query is required' }] };
+  }
+
+  if (request.context.length === 0) {
+    return { ok: true, value: insufficientContextAnswer(query, []) };
+  }
+
+  const prompt = buildGroundedPrompt({ query, context: request.context });
+
+  let output: ModelGeneration;
+  try {
+    output = await deps.model.generate(prompt);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'generation failed';
+    return { ok: false, issues: [{ path: 'model', message }] };
+  }
+
+  const text = typeof output.text === 'string' ? output.text.trim() : '';
+  if (output.insufficientContext || text.length === 0) {
+    return { ok: true, value: insufficientContextAnswer(query, request.context) };
+  }
+
+  const citations = selectCitations(request.context, output.citedChunkIds);
+  return {
+    ok: true,
+    value: {
+      text,
+      citations,
+      insufficientContext: false,
+    },
   };
 }
