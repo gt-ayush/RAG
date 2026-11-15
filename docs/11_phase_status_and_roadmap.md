@@ -113,8 +113,22 @@ Implemented query transformation (rewrite/decompose/expand) as an optional hook 
 - Tests: `tests/retrieve-query-transform.test.ts` (7 cases covering bypass, RRF merge, transformer failure, ok:false, empty variants, deduplication, and document allowlist after merge).
 - No new dependencies; uses existing `EmbeddingProvider`, `VectorStore`, and `withRetry` patterns.
 
-Next within Phase 11: **11.2 Sparse/hybrid retrieval + RRF fusion**.
-| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion · 11.3 Reranking & thresholding · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
+Next within Phase 11: **11.2 Sparse/hybrid retrieval + RRF fusion** ✅ done (below).
+
+### Phase 11.2 — Sparse/hybrid retrieval + RRF fusion (complete)
+
+Implemented sparse/hybrid retrieval with RRF fusion in `src/retrieve.ts`:
+
+- Added `SparseVector`, `SparseEmbedding`, `SparseRetrievalResult`, `HybridRetrievalOptions`, and `SparseVectorStore` types to `src/types.ts`.
+- Extended `RetrieverDependencies` with optional `sparseStore` and `hybridOptions`.
+- `retrieve()` runs dense retrieval (existing path) and, when hybrid is enabled AND a `sparseStore` is provided, also runs sparse retrieval; results are fused via multi-source RRF (`multiSourceRRF`) and deduplicated by chunk ID.
+- Dense-only remains the default baseline path — hybrid is opt-in via `hybridOptions.enabled`.
+- Fail-closed: sparse retrieval failures don't fail the whole query; dense results are still returned.
+- Server-side document allowlist applied after fusion; optional reranker and topK cap preserved.
+- Tests: `tests/retrieve-hybrid.test.ts` (6 cases covering dense-only baseline, hybrid off with sparseStore present, RRF fusion ranking, sparse failure fallback, document allowlist after fusion, and empty results).
+
+Next within Phase 11: **11.3 Reranking & thresholding**.
+| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
