@@ -115,3 +115,10 @@ export type {
   ServerDependencies,
 } from './server.js';
 export { createHttpServer } from './server.js';
+
+export type {
+  IngestedSourceRecord,
+  IngestionLifecycleResult,
+  ReindexDecision,
+} from './types.js';
+export { IngestionLifecycleTracker } from './ingestion-lifecycle.js';
