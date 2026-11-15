@@ -102,6 +102,21 @@ When `LLM_BASE_URL` is set, `src/config.ts` parses it plus the optional `LLM_TIM
 
 `VECTOR_DB_URL` and `VECTOR_DB_API_KEY` configure the Qdrant Cloud cluster endpoint and database API key. `QDRANT_COLLECTION` names the Qdrant collection to write into (created on first upsert if it does not exist; `document_id` and `tenant_id` payload fields are indexed for strict-mode filtering). These feed `src/qdrant-store.ts`, the `QdrantStore` adapter implementing the existing `VectorStore` contract: deterministic chunk-id→UUID mapping, server-side payload-filter pushdown (tenant/document), idempotent upsert, delete-by-document-id, and fail-closed error handling.
 
+### Integration tests (no paid quota)
+
+`tests/integration-pipeline.test.ts` exercises the embed → store → retrieve pipeline end-to-end using mocked `fetch` responses (no paid provider quota). Run it as part of the normal test suite:
+
+```bash
+npm test
+```
+
+To add a new integration test, follow the existing pattern:
+1. Mock `globalThis.fetch` with `vi.fn()` returning a shaped `Response`.
+2. Construct the real `HttpEmbeddingProvider`, `MemoryVectorStore`, and call `retrieve()`.
+3. Assert on the composed result, not on internal implementation details.
+
+Do not add tests that call real provider APIs in the default suite — paid quota must not be consumed by CI.
+
 ## Usage (current API, baseline)
 
 The project currently exports composable functions/types (not a `RAGPipeline` class). Example: ingest + chunk local text files, index into the in-memory store with a mock embedder, retrieve, and generate a grounded answer with a mock model.
