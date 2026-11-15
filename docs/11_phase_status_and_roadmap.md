@@ -291,6 +291,19 @@ Tests: verified by manual execution (`node scripts/benchmark-realistic.mjs`) —
 
 Next within Phase 14: **14.2 Runtime controls under load**.
 
+### Phase 14.2 — Runtime controls under load (complete)
+
+Implemented runtime controls in `src/runtime-controls.ts`:
+
+- `ConcurrencyLimiter` — bounds concurrent operations with a configurable max concurrent and queue size. Rejects when queue is full or acquire timeout expires. Tracks concurrency metrics (active, queued, completed, rejected, timeouts).
+- `CircuitBreaker` — tracks failures and opens circuit after failure threshold. Fail-closed: calls fail fast while open. After recovery timeout, transitions to half-open and allows limited trial calls. If half-open calls succeed, closes circuit; if any fail, re-opens.
+- `SimpleCache` — TTL cache with max size and LRU eviction. Tracks hits/misses/size.
+- `RuntimeControls` — combines limiter, breaker, and cache into a single facade. `execute(key, op)` runs an operation through cache check → limiter → breaker → execute → cache store pipeline.
+
+Tests: `tests/runtime-controls.test.ts` (14 cases covering concurrency limiting, queue rejection, timeout, circuit breaker open/half-open/close transitions, cache TTL/eviction/hit-miss, and combined runtime controls snapshot).
+
+Next within Phase 14: **14.3 Cost measurement & capacity**.
+
 ### Phase 11.3 — Reranking & thresholding (complete)
 
 Implemented the existing `RetrievalReranker` hook with a concrete scorer and explicit refusal threshold:
@@ -309,7 +322,7 @@ Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation ✅ done | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks ✅ done | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail ✅ done · 13.2 Erasure & residency ✅ done · 13.3 Red-team suites ✅ done · 13.4 Evidence pack & gap assessment ✅ done | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
-| 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines ✅ done · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
+| 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines ✅ done · 14.2 Runtime controls under load ✅ done · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
 ### Dependencies and ordering
 - **Phase 10** is the default next increment (smallest useful slice: one adapter at a time).
