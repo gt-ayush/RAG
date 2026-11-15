@@ -29,5 +29,16 @@ export {
   parsePipelineConfig,
 } from './config.js';
 
-export type { ChunkingOptions, ParsedDocument, ParseStatus } from './ingest.js';
-export { chunkDocument, parseSourceFile, validateChunkingOptions } from './ingest.js';
+export type {
+  ChunkingOptions,
+  IngestBatch,
+  IngestFileResult,
+  ParsedDocument,
+  ParseStatus,
+} from './ingest.js';
+export {
+  chunkDocument,
+  ingestSources,
+  parseSourceFile,
+  validateChunkingOptions,
+} from './ingest.js';
