@@ -108,10 +108,26 @@ export interface EmbeddingProviderConfig {
   timeoutMs?: number;
 }
 
+/** Configuration for a chat/LLM provider that returns generated text to the caller. */
+export interface LLMProviderConfig {
+  /** Base URL of an OpenAI-compatible chat completions API (e.g. https://api.openai.com/v1). */
+  baseUrl: string;
+  /** Model identifier sent to the provider; pinned and checked against responses. */
+  model: string;
+  /** Optional provider API key; never logged or included in error messages. */
+  apiKey?: string;
+  /** Per-request timeout in milliseconds. */
+  timeoutMs?: number;
+}
+
 export interface PipelineConfig {
   llm: {
     apiKey: string;
     model: string;
+    /** Optional LLM API base URL (OpenAI-compatible providers). */
+    baseUrl?: string;
+    /** Optional per-request timeout in milliseconds. */
+    timeoutMs?: number;
   };
   vectorDb: {
     url: string;
