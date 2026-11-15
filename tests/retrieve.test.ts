@@ -86,4 +86,43 @@ describe('retrieve baseline', () => {
     const failed = await retrieve({ text: 'q', topK: 1 }, { embeddingProvider: failingProvider, vectorStore: store });
     expect(failed.ok).toBe(false);
   });
+
+  it('supports optional post-retrieval reranking while preserving traceability', async () => {
+    const store = new MemoryVectorStore(2);
+    await store.upsert([rec('a::0', 'a', [1, 0]), rec('b::0', 'b', [0.9, 0.1])]);
+
+    const result = await retrieve(
+      { text: 'question', topK: 2 },
+      {
+        embeddingProvider: providerFor([1, 0]),
+        vectorStore: store,
+        reranker: async (_query, results) => ({
+          ok: true,
+          value: [...results].reverse(),
+        }),
+      },
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.map((r) => r.chunk.id)).toEqual(['b::0', 'a::0']);
+    expect(result.value.map((r) => r.rank)).toEqual([1, 2]);
+    expect(result.value[0]?.sourceId).toBe('b');
+  });
+
+  it('surfaces reranker failures explicitly', async () => {
+    const store = new MemoryVectorStore(2);
+    await store.upsert([rec('a::0', 'a', [1, 0])]);
+
+    const result = await retrieve(
+      { text: 'question', topK: 1 },
+      {
+        embeddingProvider: providerFor([1, 0]),
+        vectorStore: store,
+        reranker: () => ({ ok: false, issues: [{ path: 'reranker', message: 'failed' }] }),
+      },
+    );
+
+    expect(result).toEqual({ ok: false, issues: [{ path: 'reranker', message: 'failed' }] });
+  });
 });
