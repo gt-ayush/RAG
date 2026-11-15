@@ -335,3 +335,66 @@ export interface ReindexDecision {
   /** Existing record if one was found, otherwise undefined. */
   existingRecord?: IngestedSourceRecord;
 }
+
+/** Type of auditable pipeline event. */
+export type AuditEventType =
+  | 'query.received'
+  | 'query.retrieved'
+  | 'query.retrieval_error'
+  | 'query.authorization_denied'
+  | 'generation.started'
+  | 'generation.completed'
+  | 'generation.error'
+  | 'generation.insufficient_context'
+  | 'ingestion.started'
+  | 'ingestion.completed'
+  | 'ingestion.error'
+  | 'deletion.requested'
+  | 'deletion.completed'
+  | 'erasure.requested'
+  | 'erasure.completed';
+
+/** Redaction level applied to an audit event field. */
+export type AuditRedactionLevel = 'none' | 'hash' | 'redact';
+
+/** A single append-only audit event for query/retrieval/generation/lifecycle. */
+export interface AuditEvent {
+  /** Monotonically increasing sequence number within the log. */
+  seq: number;
+  /** ISO-8601 UTC timestamp when the event occurred. */
+  timestamp: string;
+  /** Type of auditable event. */
+  type: AuditEventType;
+  /** Tenant scope (trusted, resolved server-side). */
+  tenantId?: string;
+  /** Document scope, if applicable. */
+  documentId?: DocumentId;
+  /** Optional correlation id linking query → retrieval → generation events. */
+  correlationId?: string;
+  /** Structured event payload; sensitive fields are redacted at write time. */
+  payload: Record<string, unknown>;
+  /** SHA-256 hex digest of the previous event's hash chain value (empty string for the first event). */
+  previousHash: string;
+  /** SHA-256 hex digest of this event (seq + timestamp + type + payload + previousHash). */
+  hash: string;
+}
+
+/** Append-only audit log with integrity protection via hash chaining. */
+export interface AuditLog {
+  /** Append an event to the log. Returns the written event. */
+  append(event: Omit<AuditEvent, 'seq' | 'hash'>): Promise<AuditEvent>;
+  /** Read events within an optional seq range. */
+  read(options?: { fromSeq?: number; toSeq?: number; limit?: number }): Promise<readonly AuditEvent[]>;
+  /** Verify the integrity of the hash chain. Returns false if any link is broken. */
+  verifyIntegrity(): Promise<boolean>;
+  /** Number of events in the log. */
+  count(): number;
+}
+
+/** Configuration for the audit trail. */
+export interface AuditLogConfig {
+  /** Maximum number of events to retain; older events are dropped on append. */
+  maxEvents?: number;
+  /** Retention period in days; events older than this are dropped on append. */
+  retentionDays?: number;
+}
