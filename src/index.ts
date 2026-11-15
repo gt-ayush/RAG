@@ -131,3 +131,13 @@ export type {
   AuditRedactionLevel,
 } from './types.js';
 export { AuditLogImpl, createAuditLog } from './audit.js';
+
+export type {
+  ErasureRequest,
+  ErasureResult,
+  ErasureService,
+  ResidencyCheckResult,
+  ResidencyPolicy,
+  ResidencyRule,
+} from './types.js';
+export { DefaultErasureService, DefaultResidencyPolicy, createErasureService, createResidencyPolicy, checkResidency } from './erasure.js';
