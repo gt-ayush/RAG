@@ -141,3 +141,13 @@ export type {
   ResidencyRule,
 } from './types.js';
 export { DefaultErasureService, DefaultResidencyPolicy, createErasureService, createResidencyPolicy, checkResidency } from './erasure.js';
+
+export type {
+  CostConfig,
+  EmbeddingCost,
+  GenerationCost,
+  IngestionCost,
+  QueryCost,
+  CostMetrics,
+} from './types.js';
+export { CostMetricsTracker, DefaultCostConfig, createCostTracker } from './cost-tracking.js';
