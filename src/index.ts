@@ -54,6 +54,9 @@ export {
 
 export { HttpEmbeddingProvider } from './embedding-provider.js';
 
+export type { LLMProviderConfig } from './types.js';
+export { HttpLLMProvider } from './llm-provider.js';
+
 export type { RetryOptions } from './resilience.js';
 export { isRetryableProviderError, withRetry } from './resilience.js';
 
