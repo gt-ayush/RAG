@@ -70,6 +70,43 @@ describe('parsePipelineConfig', () => {
       message: 'must be a valid URL',
     });
   });
+
+  it('parses optional embedding provider fields', () => {
+    const result = parsePipelineConfig({
+      ...validEnv,
+      EMBEDDING_BASE_URL: 'https://api.example.com/v1',
+      EMBEDDING_DIMENSIONS: '1536',
+      EMBEDDING_API_KEY: 'emb-key',
+      EMBEDDING_TIMEOUT_MS: '10000',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.embedding).toEqual({
+      model: 'test-embedding-model',
+      baseUrl: 'https://api.example.com/v1',
+      dimensions: 1536,
+      apiKey: 'emb-key',
+      timeoutMs: 10000,
+    });
+  });
+
+  it('reports invalid optional embedding provider fields', () => {
+    const result = parsePipelineConfig({
+      ...validEnv,
+      EMBEDDING_BASE_URL: 'not-a-url',
+      EMBEDDING_DIMENSIONS: 'not-a-number',
+      EMBEDDING_TIMEOUT_MS: '-5',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.map((i) => i.path)).toEqual(
+      expect.arrayContaining(['EMBEDDING_BASE_URL', 'EMBEDDING_DIMENSIONS', 'EMBEDDING_TIMEOUT_MS']),
+    );
+    const serialized = JSON.stringify(result.issues);
+    expect(serialized).not.toContain('emb-key');
+  });
 });
 
 describe('loadPipelineConfig', () => {
