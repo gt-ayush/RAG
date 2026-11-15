@@ -1,4 +1,5 @@
 import type { Chunk, Embedding, Result, ValidationIssue } from './types.js';
+import { isRetryableProviderError, withRetry } from './resilience.js';
 
 export interface EmbeddingProvider {
   readonly model: string;
@@ -119,3 +120,36 @@ export function validateQueryEmbedding(
 
   return issues.length > 0 ? { ok: false, issues } : { ok: true, value: embedding };
 }
+
+export interface EmbedChunksOptions {
+  maxAttempts?: number;
+  baseDelayMs?: number;
+}
+
+/**
+ * Embed document chunks via provider with optional bounded retries for transient
+ * provider failures/rate limits, then validate model/dimension/count integrity.
+ * Provider errors are returned as Result issues (no partial success state).
+ */
+export async function embedChunksWithValidation(
+  provider: EmbeddingProvider,
+  chunks: readonly Chunk[],
+  expected: EmbeddingCompatibility,
+  options: EmbedChunksOptions = {},
+): Promise<Result<readonly Embedding[]>> {
+  try {
+    const embeddings = await withRetry(
+      () => provider.embedTexts(chunks.map((c) => c.content), 'document'),
+      {
+        maxAttempts: options.maxAttempts ?? 1,
+        baseDelayMs: options.baseDelayMs ?? 0,
+        retryable: isRetryableProviderError,
+      },
+    );
+    return validateEmbeddingsForChunks(chunks, embeddings, expected);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'embedding provider failed';
+    return { ok: false, issues: [{ path: 'embeddingProvider', message }] };
+  }
+}
+
