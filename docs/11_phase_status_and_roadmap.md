@@ -99,7 +99,22 @@ Implemented `src/llm-provider.ts` — a generic OpenAI-compatible HTTP chat comp
 - Config: optional `LLM_BASE_URL`, `LLM_TIMEOUT_MS` parsed by `parsePipelineConfig` (`.env.example` updated).
 
 Next within Phase 10: **10.4 Integration tests & setup docs**.
-| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation · 11.2 Sparse/hybrid + fusion · 11.3 Reranking & thresholding · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
+
+### Phase 11.1 — Query transformation (complete)
+
+Implemented query transformation (rewrite/decompose/expand) as an optional hook in the retrieval pipeline:
+
+- Added `QueryTransformationOptions`, `QueryTransformationResult`, and `QueryTransformer` types to `src/types.ts`.
+- Extended `RetrieverDependencies` in `src/retrieve.ts` with optional `queryTransformer` hook.
+- `retrieve()` transforms the original query into variants when the hook is present; each variant is embedded and retrieved; results are merged via reciprocal-rank fusion (RRF, k=60) and re-ranked by fused score.
+- Bypass path: when no `queryTransformer` is configured, behavior is unchanged (single query, direct retrieval).
+- Fail-closed: transformer errors or empty results fall back to the original query only.
+- Deduplication: the original query is always included; duplicate variants are removed.
+- Tests: `tests/retrieve-query-transform.test.ts` (7 cases covering bypass, RRF merge, transformer failure, ok:false, empty variants, deduplication, and document allowlist after merge).
+- No new dependencies; uses existing `EmbeddingProvider`, `VectorStore`, and `withRetry` patterns.
+
+Next within Phase 11: **11.2 Sparse/hybrid retrieval + RRF fusion**.
+| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion · 11.3 Reranking & thresholding · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
