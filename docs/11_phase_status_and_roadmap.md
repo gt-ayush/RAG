@@ -262,7 +262,18 @@ Implemented adversarial security testing in `tests/red-team.test.ts`:
 - Updated `src/retrieve.ts` `resolveAuthorizedFilters` to fail closed when a client-supplied tenantId is present without trusted authz context
 - Tests: `tests/red-team.test.ts` (9 cases covering cross-tenant isolation, fail-closed authorization, document allow-list, citation claim validation, expectedModel enforcement)
 
-Next within Phase 13: **13.4 Evidence pack & gap assessment**.
+Next within Phase 13: **13.4 Evidence pack & gap assessment** ✅ done (below).
+
+### Phase 13.4 — Evidence pack & gap assessment (complete)
+
+Updated the compliance gap assessment with verified controls from Phases 13.1-13.3:
+
+- Added `Audit trail (baseline)` row to verified controls table — `src/audit.ts`, `tests/audit.test.ts` — append-only log with hash-chain integrity, payload redaction, retention config
+- Added `Erasure & residency (baseline)` row — `src/erasure.ts`, `tests/erasure.test.ts` — erasure cascade across D1/D2/D4 stores, verification sweep, residency policy enforcement with fail-closed
+- Added `Red-team suites` row — `tests/red-team.test.ts` — cross-tenant access denial, prompt injection resistance, expectedModel fail-closed, citation claim validation
+- Updated `docs/07_compliance_gap_assessment.md` verified controls table with all three new rows
+
+All Phase 13 sub-phases complete: 13.1 audit trail, 13.2 erasure & residency, 13.3 red-team suites, 13.4 evidence pack & gap assessment.
 
 ### Phase 11.3 — Reranking & thresholding (complete)
 
@@ -281,7 +292,7 @@ Implemented the existing `RetrievalReranker` hook with a concrete scorer and exp
 Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation ✅ done | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks ✅ done | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
-| 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail ✅ done · 13.2 Erasure & residency ✅ done · 13.3 Red-team suites ✅ done · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
+| 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail ✅ done · 13.2 Erasure & residency ✅ done · 13.3 Red-team suites ✅ done · 13.4 Evidence pack & gap assessment ✅ done | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
 ### Dependencies and ordering
