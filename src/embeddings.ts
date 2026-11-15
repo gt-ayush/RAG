@@ -5,6 +5,12 @@ export interface EmbeddingProvider {
   readonly model: string;
   readonly dimensions: number;
   embedTexts(texts: readonly string[], purpose: 'document' | 'query'): Promise<readonly Embedding[]>;
+  /**
+   * Optional capability for providers that can bind results to chunk ids.
+   * `embedChunksWithValidation` prefers it over `embedTexts` so chunk
+   * traceability survives the embed -> validate -> index flow.
+   */
+  embedChunks?(chunks: readonly Chunk[], purpose: 'document'): Promise<readonly Embedding[]>;
 }
 
 export interface EmbeddingCompatibility {
@@ -139,7 +145,13 @@ export async function embedChunksWithValidation(
 ): Promise<Result<readonly Embedding[]>> {
   try {
     const embeddings = await withRetry(
-      () => provider.embedTexts(chunks.map((c) => c.content), 'document'),
+      () =>
+        provider.embedChunks
+          ? provider.embedChunks(chunks, 'document')
+          : provider.embedTexts(
+              chunks.map((c) => c.content),
+              'document',
+            ),
       {
         maxAttempts: options.maxAttempts ?? 1,
         baseDelayMs: options.baseDelayMs ?? 0,
