@@ -1,10 +1,29 @@
 import type { EmbeddingProvider } from './embeddings.js';
 import { validateQueryEmbedding } from './embeddings.js';
-import type { RetrievalQuery, RetrievalResult, Result } from './types.js';
+import type { RetrievalQuery, RetrievalResult, Result, ValidationIssue } from './types.js';
 import type { VectorStore } from './vector-store.js';
 
 export interface RetrieveRequest extends RetrievalQuery {
   text: string;
+}
+
+export interface AuthorizationContext {
+  /** Trusted tenant scope resolved server-side. */
+  tenantId?: string;
+  /** Trusted allow-list of document IDs resolved server-side. */
+  allowedDocumentIds?: readonly string[];
+}
+
+export type AuthorizationEvaluator = (
+  context: AuthorizationContext,
+  request: RetrieveRequest,
+) => Promise<Result<AuthorizationContext>> | Result<AuthorizationContext>;
+
+export interface RetrievalAuthorization {
+  /** Trusted server-side authorization context; never rely on client filters alone. */
+  context: AuthorizationContext;
+  /** Optional policy evaluation hook; failures must fail closed. */
+  evaluate?: AuthorizationEvaluator;
 }
 
 export type RetrievalReranker = (
@@ -19,13 +38,56 @@ export interface RetrieverDependencies {
   reranker?: RetrievalReranker;
 }
 
+function authDenied(message: string): Result<never> {
+  return { ok: false, issues: [{ path: 'authorization', message }] };
+}
+
+function resolveAuthorizedFilters(
+  request: RetrieveRequest,
+  authz?: RetrievalAuthorization,
+): Result<{ tenantId?: string; allowedDocumentIds?: readonly string[] }> {
+  if (!authz) {
+    // No explicit authz context provided; do not invent permissions.
+    // Tenant/document scoping must be enforced by trusted callers in secured deployments.
+    return { ok: true, value: {} };
+  }
+
+  const trusted = authz.context;
+  if (request.tenantId && trusted.tenantId && request.tenantId !== trusted.tenantId) {
+    return authDenied('tenant access denied');
+  }
+  if (trusted.tenantId === undefined && request.tenantId) {
+    // Client-supplied tenant filter is not sufficient authorization evidence.
+    return authDenied('trusted tenant authorization is required');
+  }
+
+  return {
+    ok: true,
+    value: {
+      ...(trusted.tenantId ? { tenantId: trusted.tenantId } : {}),
+      ...(trusted.allowedDocumentIds ? { allowedDocumentIds: trusted.allowedDocumentIds } : {}),
+    },
+  };
+}
+
+function applyDocumentAllowList(
+  results: readonly RetrievalResult[],
+  allowedDocumentIds?: readonly string[],
+): readonly RetrievalResult[] {
+  if (!allowedDocumentIds) return results;
+  const allowed = new Set(allowedDocumentIds);
+  return results.filter((r) => allowed.has(r.sourceId) || allowed.has(r.chunk.documentId));
+}
+
 /**
- * Baseline retrieval: embed the query, validate compatibility, query the vector
- * store, then optionally apply a reranker while preserving traceability.
+ * Baseline retrieval: enforce trusted server-side authorization filters before
+ * querying generation-facing context, fail closed on policy errors, then query
+ * the vector store and optionally rerank traceable results.
  */
 export async function retrieve(
   request: RetrieveRequest,
   deps: RetrieverDependencies,
+  authz?: RetrievalAuthorization,
 ): Promise<Result<readonly RetrievalResult[]>> {
   const expected = {
     model: deps.embeddingProvider.model,
@@ -38,6 +100,20 @@ export async function retrieve(
   if (!Number.isInteger(request.topK) || request.topK <= 0) {
     return { ok: false, issues: [{ path: 'topK', message: 'must be a positive integer' }] };
   }
+
+  let effectiveAuthz = authz;
+  if (authz?.evaluate) {
+    try {
+      const evaluated = await authz.evaluate(authz.context, request);
+      if (!evaluated.ok) return authDenied('authorization evaluation failed');
+      effectiveAuthz = { context: evaluated.value };
+    } catch {
+      return authDenied('authorization evaluation failed');
+    }
+  }
+
+  const authorized = resolveAuthorizedFilters(request, effectiveAuthz);
+  if (!authorized.ok) return authorized;
 
   let embeddings;
   try {
@@ -57,12 +133,22 @@ export async function retrieve(
     return validated;
   }
 
-  const retrieved = await deps.vectorStore.query(request, validated.value);
-  if (!retrieved.ok || !deps.reranker) {
+  const scopedRequest: RetrieveRequest = {
+    ...request,
+    ...(authorized.value.tenantId ? { tenantId: authorized.value.tenantId } : {}),
+  };
+
+  const retrieved = await deps.vectorStore.query(scopedRequest, validated.value);
+  if (!retrieved.ok) {
     return retrieved;
   }
 
-  const reranked = await deps.reranker(request, retrieved.value);
+  const scopedResults = applyDocumentAllowList(retrieved.value, authorized.value.allowedDocumentIds);
+  if (!deps.reranker) {
+    return { ok: true, value: scopedResults.slice(0, request.topK).map((r, idx) => ({ ...r, rank: idx + 1 })) };
+  }
+
+  const reranked = await deps.reranker(request, scopedResults);
   if (!reranked.ok) {
     return reranked;
   }
