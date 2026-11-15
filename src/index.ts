@@ -10,6 +10,7 @@ export type {
   DocumentId,
   DocumentMetadata,
   Embedding,
+  EmbeddingProviderConfig,
   EmbeddingVector,
   GeneratedAnswer,
   GenerationRequest,
@@ -50,6 +51,8 @@ export {
   validateEmbeddingsForChunks,
   validateQueryEmbedding,
 } from './embeddings.js';
+
+export { HttpEmbeddingProvider } from './embedding-provider.js';
 
 export type { RetryOptions } from './resilience.js';
 export { isRetryableProviderError, withRetry } from './resilience.js';
