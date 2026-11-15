@@ -472,3 +472,70 @@ export type ResidencyPolicy = (
 export type ErasureService = (
   request: ErasureRequest,
 ) => Promise<ErasureResult>;
+
+/** Configuration for concurrency limiting (max concurrent operations). */
+export interface ConcurrencyLimiterConfig {
+  /** Maximum number of concurrent operations. */
+  maxConcurrent: number;
+  /** Maximum number of queued waiters before rejecting new requests. */
+  maxQueueSize: number;
+  /** Timeout in ms for waiting on concurrency slot. */
+  acquireTimeoutMs: number;
+}
+
+/** State of a circuit breaker. */
+export type CircuitBreakerState = 'closed' | 'open' | 'half-open';
+
+/** Configuration for circuit breaker. */
+export interface CircuitBreakerConfig {
+  /** Number of consecutive failures before opening circuit. */
+  failureThreshold: number;
+  /** Time in ms before attempting half-open recovery. */
+  recoveryTimeoutMs: number;
+  /** Number of successful half-open calls before closing circuit. */
+  halfOpenMaxAttempts: number;
+}
+
+/** Snapshot of circuit breaker metrics. */
+export interface CircuitBreakerMetrics {
+  state: CircuitBreakerState;
+  failures: number;
+  successes: number;
+  totalCalls: number;
+  trips: number;
+  lastFailureTime?: string;
+}
+
+/** Snapshot of concurrency limiter metrics. */
+export interface ConcurrencyLimiterMetrics {
+  active: number;
+  queued: number;
+  completed: number;
+  rejected: number;
+  timeouts: number;
+}
+
+/** Snapshot of cache metrics. */
+export interface CacheMetrics {
+  hits: number;
+  misses: number;
+  size: number;
+  maxSize: number;
+}
+
+/** Combined runtime controls configuration. */
+export interface RuntimeControlsConfig {
+  concurrency: ConcurrencyLimiterConfig;
+  circuitBreaker: CircuitBreakerConfig;
+  cache: {
+    maxSize: number;
+    ttlMs: number;
+  };
+}
+
+/** Snapshot of all runtime controls metrics. */
+export interface RuntimeControlsMetrics {
+  concurrency: ConcurrencyLimiterMetrics;
+  circuitBreaker: CircuitBreakerMetrics;
+  cache: CacheMetrics;
+}
