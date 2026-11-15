@@ -122,3 +122,12 @@ export type {
   ReindexDecision,
 } from './types.js';
 export { IngestionLifecycleTracker } from './ingestion-lifecycle.js';
+
+export type {
+  AuditEvent,
+  AuditEventType,
+  AuditLog,
+  AuditLogConfig,
+  AuditRedactionLevel,
+} from './types.js';
+export { AuditLogImpl, createAuditLog } from './audit.js';
