@@ -7,14 +7,21 @@ export interface RetrieveRequest extends RetrievalQuery {
   text: string;
 }
 
+export type RetrievalReranker = (
+  query: RetrieveRequest,
+  results: readonly RetrievalResult[],
+) => Promise<Result<readonly RetrievalResult[]>> | Result<readonly RetrievalResult[]>;
+
 export interface RetrieverDependencies {
   embeddingProvider: EmbeddingProvider;
   vectorStore: VectorStore;
+  /** Optional post-retrieval ranking/filter step (e.g. reranker/fusion adapter). */
+  reranker?: RetrievalReranker;
 }
 
 /**
- * Baseline retrieval: embed the query, validate compatibility, then query the
- * vector store and return traceable ranked results.
+ * Baseline retrieval: embed the query, validate compatibility, query the vector
+ * store, then optionally apply a reranker while preserving traceability.
  */
 export async function retrieve(
   request: RetrieveRequest,
@@ -50,5 +57,19 @@ export async function retrieve(
     return validated;
   }
 
-  return deps.vectorStore.query(request, validated.value);
+  const retrieved = await deps.vectorStore.query(request, validated.value);
+  if (!retrieved.ok || !deps.reranker) {
+    return retrieved;
+  }
+
+  const reranked = await deps.reranker(request, retrieved.value);
+  if (!reranked.ok) {
+    return reranked;
+  }
+
+  const limited = reranked.value.slice(0, request.topK).map((r, idx) => ({
+    ...r,
+    rank: idx + 1,
+  }));
+  return { ok: true, value: limited };
 }
