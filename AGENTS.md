@@ -198,6 +198,27 @@ Treat these phases as a roadmap, not as a claim that the corresponding functiona
 
 Do not automatically implement every phase in one task. Work on the phase requested by the user, or recommend the next smallest useful phase based on the repository audit. Ask before making major architecture changes, adding costly services, or running destructive operations.
 
+### Phase status (baseline — verified)
+
+Phases 0–9 below are **complete for the local baseline** as of the current repository state. "Complete" means the sub-phase deliverables exist, are tested where testable, and are documented — it does **not** mean production, enterprise, compliance, or scale readiness. All baseline evidence is local/synthetic: deterministic mocks, in-memory store, no real providers, paid APIs, or cloud services.
+
+| Phase | Status | Verified baseline evidence |
+|---|---|---|
+| 0 — Audit & Baseline | Complete | Implementation inventory, pipeline map, and recorded baseline checks |
+| 1 — TypeScript Foundation | Complete | ESM/NodeNext `src/` → `dist/` build, strict `tsconfig`, typed config validation, Vitest baseline |
+| 2 — Ingestion & Chunking | Complete | Text parsing (`.txt/.md/.markdown/.text`), deterministic chunking, content hashes, idempotent batch ingestion |
+| 3 — Embeddings & Indexing | Complete | Provider/store contracts, model/dimension validation, `MemoryVectorStore` lifecycle, retry/resilience helpers |
+| 4 — Retrieval & Access Filtering | Complete | Baseline dense retrieval, reranker hook, trusted fail-closed tenant/document filtering |
+| 5 — Grounded Generation & Citations | Complete | System/user/evidence isolation, citation restriction, insufficiency handling, timeout / expected-model / malformed-output handling |
+| 6 — Evaluation & Regression | Complete | Synthetic golden set v0.1.0 (n=3), mock baseline (Recall@3 = 1.0, MRR = 1.0), regression guard via `npm run evaluate` |
+| 7 — Security & Isolation | Complete | Threat/control review, cross-tenant + prompt-injection tests, compliance gap assessment |
+| 8 — Operations & Cost | Complete | Local mock benchmark, observability primitives, deployment/cost/readiness assessment |
+| 9 — Docs & Release Readiness | Complete | README/docs aligned to actual behavior, command verification (`typecheck`/`test`/`build`/`evaluate`/benchmark all passing), handover report |
+
+Known baseline limits: text-only parsing, no real embedding/LLM/vector-DB adapters, no service runtime, no durable tenancy/audit/residency enforcement, synthetic n=3 evaluation only. See `docs/05`, `docs/07`, `docs/10`, and `docs/11_phase_status_and_roadmap.md`.
+
+Do not redo completed phases by default. Re-verify a phase's outputs only when the repository changed substantially, and focus new work on Phases 10–14.
+
 ### Phase 0 — Repository Audit and Baseline
 
 **Goal:** Establish what exists before changing the system.
@@ -386,16 +407,111 @@ Do not automatically implement every phase in one task. Work on the phase reques
 
 **Exit criteria:** Setup and usage documentation is accurate, relevant checks and evaluations are reported, and outstanding risks are clearly stated.
 
+### Phase 10 — Real Providers and Persistent Stores
+
+**Goal:** Replace the mock/in-memory baseline with real, configured integrations behind the existing interfaces, without changing the pipeline architecture.
+
+**Sub-phases:**
+
+- **10.1 Embedding provider adapter**
+  - Implement the existing `EmbeddingProvider` contract for one explicitly chosen provider; keep provider SDK details inside the adapter.
+  - Enforce model/version pinning and dimension compatibility with the store; reject mismatches instead of silently re-embedding.
+  - Add timeout, retry, and rate-limit handling using existing resilience helpers; surface actionable, non-secret errors.
+- **10.2 Vector store adapter**
+  - Implement the existing `VectorStore` contract against one explicitly chosen persistent store; preserve chunk/source metadata and tenant fields.
+  - Define upsert/re-index/delete semantics and idempotency for reprocessed sources.
+  - Do not add a vector database, cloud service, or paid plan without explicit user authorization and a documented need.
+- **10.3 LLM provider / gateway adapter**
+  - Implement the existing `LanguageModel` contract via a gateway-style abstraction; keep vendor SDK calls out of pipeline modules.
+  - Preserve grounding/citation rules, expected-model enforcement, timeout handling, and "no silent model fallback" behavior.
+  - Keep secrets in environment/config only and redact sensitive content from logs and errors.
+- **10.4 Integration tests & setup docs**
+  - Add contract-level tests using fixtures or recorded responses; do not spend paid API quota inside the default test suite.
+  - Document required environment variables, setup steps, and failure modes; keep `README.md` and `.env.example` accurate.
+
+**Exit criteria:** Adapters implement the existing interfaces, configuration and model/dimension checks are enforced and tested, failures are handled explicitly without silent fallbacks, setup documentation is accurate, and any paid/external usage is recorded as authorized and measured.
+
+### Phase 11 — Retrieval Quality and Query Processing
+
+**Goal:** Improve evidence quality with measured, reproducible retrieval changes.
+
+**Sub-phases:**
+
+- **11.1 Query transformation**
+  - Add rewrite/decompose/expand capabilities behind an optional hook with explicit latency/token budget and a bypass path.
+- **11.2 Sparse/hybrid retrieval and fusion**
+  - Add sparse retrieval and rank fusion (e.g., reciprocal-rank fusion) while preserving dense retrieval as the default baseline path.
+- **11.3 Reranking and thresholding**
+  - Implement the existing reranker hook contract with a concrete scorer; define an explicit empty-context/refusal threshold behavior.
+- **11.4 Representative evaluation**
+  - Expand the versioned golden dataset beyond the n=3 synthetic smoke set; record dataset version, sample size, metric definitions, and before/after deltas.
+
+**Exit criteria:** Every retrieval change is measured on a versioned dataset with reported metrics, dense-only behavior remains available, and no quality claim is made without recorded evidence.
+
+### Phase 12 — Service Boundary and Durable Lifecycle
+
+**Goal:** Introduce a real runtime boundary and durable document lifecycle on top of the verified baseline.
+
+**Sub-phases:**
+
+- **12.1 API/runtime boundary**
+  - Add the smallest service surface the project actually needs, with request validation, structured errors, and health/readiness endpoints.
+- **12.2 Server-side authorization**
+  - Enforce tenant/document authorization on the trusted server side before retrieval results reach generation; fail closed on policy errors and test cross-tenant access.
+- **12.3 Durable ingestion lifecycle**
+  - Persist source/version metadata, support re-index and deletion (including erasure requests) with verification sweeps and auditable outcomes.
+- **12.4 Deployment & runbooks**
+  - Define configuration, deployment, and operational runbooks consistent with real infrastructure; do not run infrastructure, migration, bulk re-index, or destructive commands without explicit confirmation.
+
+**Exit criteria:** The runtime enforces authorization before context exposure, lifecycle operations are tested and observable, and deployment/runbook docs match the actual implementation.
+
+### Phase 13 — Security, Privacy, and Compliance Evidence
+
+**Goal:** Move security/compliance items from design target to verifiable evidence.
+
+**Sub-phases:**
+
+- **13.1 Audit trail**
+  - Implement append-only, integrity-protected query/retrieval/generation audit events with retention policy and redaction of sensitive content.
+- **13.2 Erasure and residency**
+  - Implement and verify the erasure cascade across stores (including verification sweeps) and enforce region/tenant residency rules.
+- **13.3 Red-team suites**
+  - Expand adversarial testing: cross-tenant access, prompt injection, privilege escalation, secret leakage, malformed input, and deletion behavior.
+- **13.4 Evidence pack & gap assessment**
+  - Update `docs/07_compliance_gap_assessment.md` with verified controls and remaining gaps; keep SOC 2 Type II / GDPR claims tied to collected evidence only.
+
+**Exit criteria:** Verified controls have test/evidence artifacts, remaining gaps are documented, and no compliance claim exists without supporting evidence.
+
+### Phase 14 — Realistic Performance, Cost, and Release
+
+**Goal:** Validate behavior under realistic workloads and produce evidence-backed release readiness.
+
+**Sub-phases:**
+
+- **14.1 Realistic workload baselines**
+  - Measure latency percentiles, throughput, and failure rates with real providers and storage, not mocks; record environment and configuration.
+- **14.2 Runtime controls under load**
+  - Validate concurrency limits, backpressure, circuit breaking, caching, and alert thresholds with measured numbers.
+- **14.3 Cost measurement & capacity**
+  - Measure cost per query/ingestion run and produce capacity assumptions for realistic corpus sizes.
+- **14.4 Release readiness & handover**
+  - Repeat the Phase 9.3 handover with real evidence, updated docs, and an explicit list of residual risks and deferred work.
+
+**Exit criteria:** Performance and cost claims are backed by repeatable measurements on documented configurations, and the handover distinguishes verified capability from remaining gaps.
+
 ### Phase Selection Rules
 
-- Start with Phase 0 when the repository state is unknown or has changed substantially.
+- Start with Phase 0 when the repository state is unknown or has changed substantially; otherwise trust the status table above and start at the lowest incomplete phase in 10–14.
 - Do not repeat completed phases by default; verify their outputs and focus on unresolved gaps.
 - Phases may overlap when a small, safe change requires it, but security and authorization must be addressed before exposing retrieved data to generation.
-- Prefer small, reviewable increments with tests over broad rewrites.
+- Prefer small, reviewable increments with tests over broad rewrites; one sub-phase per task is the default unit of work.
+- Never start work that implies paid API usage, new paid/cloud infrastructure, destructive re-indexing/deletion, or compliance/security claims without explicit user authorization and a documented plan.
 - At the start of substantial work, state the target phase and expected outcome. At handover, state what was completed, what remains, and the evidence used to judge completion.
 
 
 ## 18. Current Priority
-Understand the existing RAG repository first. Read `README.md`, inspect `package.json`, review `src/` and tests, and identify which features are implemented versus only described in `plan.md` or `docs/`.
+Phases 0–9 are complete for the local baseline (status table in Section 17; roadmap and per-phase evidence in `docs/11_phase_status_and_roadmap.md`). Preserve that verified behavior and its passing checks.
 
-Preserve existing working behavior. Do not introduce unrelated campus food ordering requirements.
+Default next increment: **Phase 10 — Real Providers and Persistent Stores**, starting with the smallest adapter slice the user requests (embedding provider first is the smallest). Keep adapters behind the existing `EmbeddingProvider` / `VectorStore` / `LanguageModel` interfaces, keep model/version pinning and fail-closed behavior, and do not add paid services, new vector databases, or cloud infrastructure without explicit authorization.
+
+Before any new work, re-read `README.md`, `package.json`, `src/`, and `tests/` to confirm the current state, then state the target phase, sub-phase, and expected evidence. Do not introduce unrelated campus food ordering requirements.
