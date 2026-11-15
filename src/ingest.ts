@@ -1,6 +1,13 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { Document, DocumentMetadata, ValidationIssue } from './types.js';
+import type {
+  Chunk,
+  ChunkMetadata,
+  Document,
+  DocumentMetadata,
+  Result,
+  ValidationIssue,
+} from './types.js';
 
 export type ParseStatus = 'ok' | 'empty' | 'unsupported' | 'error';
 
@@ -104,3 +111,107 @@ export async function parseSourceFile(sourcePath: string): Promise<ParsedDocumen
     };
   }
 }
+
+export interface ChunkingOptions {
+  /** Maximum chunk size in characters (baseline deterministic strategy). */
+  chunkSize: number;
+  /** Overlap between consecutive chunks in characters. */
+  chunkOverlap: number;
+}
+
+const DEFAULT_CHUNKING_OPTIONS: ChunkingOptions = {
+  chunkSize: 512,
+  chunkOverlap: 50,
+};
+
+export function validateChunkingOptions(
+  options: Partial<ChunkingOptions> = {},
+): Result<ChunkingOptions> {
+  const chunkSize = options.chunkSize ?? DEFAULT_CHUNKING_OPTIONS.chunkSize;
+  const chunkOverlap = options.chunkOverlap ?? DEFAULT_CHUNKING_OPTIONS.chunkOverlap;
+  const issues: ValidationIssue[] = [];
+
+  if (!Number.isInteger(chunkSize) || chunkSize <= 0) {
+    issues.push({ path: 'chunkSize', message: 'must be a positive integer' });
+  }
+  if (!Number.isInteger(chunkOverlap) || chunkOverlap < 0) {
+    issues.push({ path: 'chunkOverlap', message: 'must be a non-negative integer' });
+  }
+  if (
+    Number.isInteger(chunkSize) &&
+    Number.isInteger(chunkOverlap) &&
+    chunkSize > 0 &&
+    chunkOverlap >= 0 &&
+    chunkOverlap >= chunkSize
+  ) {
+    issues.push({ path: 'chunkOverlap', message: 'must be less than chunkSize' });
+  }
+
+  if (issues.length > 0) {
+    return { ok: false, issues };
+  }
+
+  return { ok: true, value: { chunkSize, chunkOverlap } };
+}
+
+function buildChunkId(documentId: string, index: number): string {
+  return `${documentId}::chunk::${index}`;
+}
+
+/**
+ * Deterministically split a document into overlapping character chunks while
+ * preserving source traceability metadata and offsets.
+ */
+export function chunkDocument(
+  document: Document,
+  options: Partial<ChunkingOptions> = {},
+): Result<readonly Chunk[]> {
+  const validated = validateChunkingOptions(options);
+  if (!validated.ok) {
+    return validated;
+  }
+
+  const { chunkSize, chunkOverlap } = validated.value;
+  const content = document.content;
+  if (content.length === 0) {
+    return { ok: true, value: [] };
+  }
+
+  const chunks: Chunk[] = [];
+  const step = chunkSize - chunkOverlap;
+  let start = 0;
+  let index = 0;
+
+  while (start < content.length) {
+    const end = Math.min(start + chunkSize, content.length);
+    const chunkContent = content.slice(start, end);
+    const chunkId = buildChunkId(document.id, index);
+    const metadata: ChunkMetadata = {
+      ...document.metadata,
+      documentId: document.id,
+      source: document.metadata.source,
+      chunkId,
+      chunkIndex: index,
+      startOffset: start,
+      endOffset: end,
+    };
+
+    chunks.push({
+      id: chunkId,
+      documentId: document.id,
+      content: chunkContent,
+      index,
+      metadata,
+    });
+
+    if (end >= content.length) {
+      break;
+    }
+
+    start += step;
+    index += 1;
+  }
+
+  return { ok: true, value: chunks };
+}
+
