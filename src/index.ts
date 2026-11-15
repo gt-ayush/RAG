@@ -51,3 +51,4 @@ export {
 } from './embeddings.js';
 
 export type { IndexedRecord, VectorStore } from './vector-store.js';
+export { MemoryVectorStore } from './memory-store.js';
