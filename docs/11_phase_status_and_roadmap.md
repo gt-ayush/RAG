@@ -324,7 +324,23 @@ Types added to `src/types.ts`:
 
 Tests: `tests/cost-tracking.test.ts` (12 cases covering embedding cost tracking, generation cost tracking, ingestion cost tracking, query cost tracking, metrics aggregation, cost tracker factory).
 
-Next within Phase 14: **14.4 Release readiness & handover**.
+Next within Phase 14: **14.4 Release readiness & handover** ✅ done (below).
+
+### Phase 14.4 — Release readiness & handover (complete)
+
+Implemented release readiness handover report:
+
+- **`docs/14_release_readiness.md`** (new) — comprehensive handover report covering:
+  - Completed phases 0–14 with full evidence (commands run, results, artifacts)
+  - All 54 sub-phases completed across Phases 0–14
+  - Complete file inventory (implementation, tests, docs, data/scripts/config)
+  - Complete verification results (typecheck, test, build, evaluate, benchmark smoke, benchmark realistic)
+  - Complete known limitations and gaps (baseline limits per phase)
+  - Complete follow-up work recommendations (next increments if real providers needed)
+  - Readiness statement: local baseline ready; production/enterprise/compliance claims unverified
+- **`AGENTS.md` §18 Current Priority** — updated to reflect all phases complete, no remaining baseline work
+
+All Phases 0–14 complete: 54 sub-phases across 14 phases. Total: 27 test files, 197 tests passing, typecheck/build/evaluate/benchmark all passing.
 
 ### Phase 11.3 — Reranking & thresholding (complete)
 
@@ -344,7 +360,7 @@ Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation ✅ done | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks ✅ done | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail ✅ done · 13.2 Erasure & residency ✅ done · 13.3 Red-team suites ✅ done · 13.4 Evidence pack & gap assessment ✅ done | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
-| 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines ✅ done · 14.2 Runtime controls under load ✅ done · 14.3 Cost measurement & capacity ✅ done · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
+| 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines ✅ done · 14.2 Runtime controls under load ✅ done · 14.3 Cost measurement & capacity ✅ done · 14.4 Release readiness & handover ✅ done | Performance/cost claims backed by repeatable measurements on documented configurations |
 
 ### Dependencies and ordering
 - **Phase 10** is the default next increment (smallest useful slice: one adapter at a time).
