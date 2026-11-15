@@ -95,3 +95,6 @@ export {
   reciprocalRank,
   retrievedSourceIds,
 } from './eval.js';
+
+export type { LogEvent, LogLevel, Logger } from './observability.js';
+export { createStructuredLogger, MetricsRecorder, sanitizeLogData } from './observability.js';
