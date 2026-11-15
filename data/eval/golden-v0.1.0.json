@@ -1,0 +1,57 @@
+{
+  "version": "0.1.0",
+  "name": "rag-golden-smoke",
+  "createdAt": "2026-11-15",
+  "description": "Minimal synthetic smoke dataset for baseline RAG pipeline verification (ingest/chunk/retrieve/generate interfaces). Not representative of production or domain corpora.",
+  "source": "Synthetic examples authored for repository baseline testing; no external/customer/regulated documents included.",
+  "limitations": [
+    "Very small sample size (3 cases); suitable only for smoke/regression checks, not quality claims.",
+    "Synthetic, plain-text content only; does not cover PDF/HTML/DOCX/EML, OCR, tables, multi-tenant data, or financial-services terminology.",
+    "Expected answers/evidence are illustrative and may not capture all acceptable grounded responses.",
+    "No human adjudication study; relevance judgments are provisional."
+  ],
+  "cases": [
+    {
+      "id": "smoke-001",
+      "query": "What day is remote work allowed?",
+      "documents": [
+        {
+          "id": "doc-policy-remote",
+          "source": "synthetic://policy/remote-work.txt",
+          "content": "Company Policy\nRemote work is allowed on Fridays.\nEmployees must notify their manager in advance."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-remote"],
+      "expectedAnswer": "Remote work is allowed on Fridays.",
+      "notes": "Single-fact grounded answer."
+    },
+    {
+      "id": "smoke-002",
+      "query": "What is the maximum password age?",
+      "documents": [
+        {
+          "id": "doc-policy-security",
+          "source": "synthetic://policy/security.txt",
+          "content": "Security Policy\nPasswords must be at least 12 characters.\nThe maximum password age is 90 days.\nMFA is required for VPN access."
+        }
+      ],
+      "relevantDocumentIds": ["doc-policy-security"],
+      "expectedAnswer": "The maximum password age is 90 days.",
+      "notes": "Fact extraction from multi-sentence policy text."
+    },
+    {
+      "id": "smoke-003",
+      "query": "What is the company's parental leave policy?",
+      "documents": [
+        {
+          "id": "doc-policy-remote",
+          "source": "synthetic://policy/remote-work.txt",
+          "content": "Company Policy\nRemote work is allowed on Fridays.\nEmployees must notify their manager in advance."
+        }
+      ],
+      "relevantDocumentIds": [],
+      "expectedAnswer": "Insufficient retrieved evidence to answer the question.",
+      "notes": "Insufficient-context/negative case; relevant evidence absent."
+    }
+  ]
+}
