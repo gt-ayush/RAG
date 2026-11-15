@@ -64,6 +64,9 @@ export type { IndexedRecord, VectorStore } from './vector-store.js';
 export { MemoryVectorStore } from './memory-store.js';
 export { QdrantStore } from './qdrant-store.js';
 
+export type { RerankerConfig } from './types.js';
+export { LexicalReranker } from './reranker.js';
+
 export type {
   AuthorizationContext,
   AuthorizationEvaluator,
