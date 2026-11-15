@@ -98,7 +98,17 @@ Implemented `src/llm-provider.ts` — a generic OpenAI-compatible HTTP chat comp
 - Tests: `tests/llm-provider.test.ts` (10 cases, mocked `fetch` — no paid provider quota used).
 - Config: optional `LLM_BASE_URL`, `LLM_TIMEOUT_MS` parsed by `parsePipelineConfig` (`.env.example` updated).
 
-Next within Phase 10: **10.4 Integration tests & setup docs**.
+Next within Phase 10: **10.4 Integration tests & setup docs** ✅ done (below).
+
+### Phase 10.4 — Integration tests & setup docs (complete)
+
+Implemented integration tests and setup documentation for the provider adapters:
+
+- Created `tests/integration-pipeline.test.ts` — end-to-end embed → store → retrieve pipeline tests using mocked `fetch` responses (no paid provider quota used). Covers successful end-to-end flow, empty store results, and provider failure propagation.
+- Updated `README.md` with integration test setup guidance: run via `npm test`, mock `globalThis.fetch` pattern, and explicit instruction not to add paid API calls to the default suite.
+- Updated `.env.example` and `README.md` configuration sections to document all optional provider env vars.
+
+Next within Phase 10: none — Phase 10 complete.
 
 ### Phase 11.1 — Query transformation (complete)
 
@@ -127,7 +137,19 @@ Implemented sparse/hybrid retrieval with RRF fusion in `src/retrieve.ts`:
 - Server-side document allowlist applied after fusion; optional reranker and topK cap preserved.
 - Tests: `tests/retrieve-hybrid.test.ts` (6 cases covering dense-only baseline, hybrid off with sparseStore present, RRF fusion ranking, sparse failure fallback, document allowlist after fusion, and empty results).
 
-Next within Phase 11: **11.4 Representative evaluation**.
+Next within Phase 11: **11.4 Representative evaluation** ✅ done (below).
+
+### Phase 11.4 — Representative evaluation (complete)
+
+Expanded the synthetic golden dataset and added before/after delta tracking:
+
+- Created `data/eval/golden-v0.2.0.json` — expanded synthetic golden dataset from n=3 to n=10 cases, still clearly labelled as synthetic/mock with limitations documented.
+- Created `data/eval/baselines/golden-v0.2.0.baseline.json` — measured baseline metrics (Recall@3=1.0, MRR=1.0, 3 insufficient-context cases) with before/after delta vs v0.1.0 (sampleSize delta=7, metric deltas=0).
+- Updated `tests/eval.smoke.test.ts` — runs against v0.2.0 dataset (n=10), reports retrieval metrics + generation insufficient-context count + deltas vs v0.1.0.
+- Updated `docs/05_evaluation_baseline.md` — references v0.2.0 dataset and baseline.
+- Explicitly framed as synthetic smoke evidence only; not statistically meaningful or production-representative.
+
+Next within Phase 11: none — Phase 11 complete.
 
 ### Phase 12.1 — API/runtime boundary (complete)
 
@@ -178,7 +200,18 @@ Implemented durable ingestion lifecycle tracking in `src/ingestion-lifecycle.ts`
 - Tests: `tests/ingestion-lifecycle.test.ts` (11 cases covering re-index decisions, source tracking, deletion with verification, store failure handling, residual chunk detection, erasure, re-index, and source count).
 - Exports `IngestedSourceRecord`, `IngestionLifecycleResult`, `ReindexDecision` types and `IngestionLifecycleTracker` from `src/index.ts`.
 
-Next within Phase 12: **12.4 Deployment & runbooks**.
+Next within Phase 12: **12.4 Deployment & runbooks** ✅ done (below).
+
+### Phase 12.4 — Deployment & runbooks (complete)
+
+Added deployment & runbook documentation in `docs/10_deployment_cost_readiness.md`:
+
+- Runbooks R-1 through R-10 covering: local development start, health check, readiness check, query operation, config validation failure, evaluation/regression check, smoke benchmark, ingestion lifecycle (re-index/delete/erasure), incident response, and explicit "what NOT to do" limits.
+- Deployment considerations clarified: library-only baseline, not yet a standalone production service; no AWS/EKS/Qdrant/S3/KMS assumed.
+- Readiness assessment: ready for local development/unit verification/synthetic smoke evaluation; not ready for production, multi-tenant, regulated data, SOC 2/GDPR claims, or high-scale operation.
+- Cost controls: do not incur paid API/cloud usage or transmit restricted data without explicit authorization.
+
+Next within Phase 12: none — Phase 12 complete.
 
 ### Phase 11.3 — Reranking & thresholding (complete)
 
@@ -195,8 +228,8 @@ Implemented the existing `RetrievalReranker` hook with a concrete scorer and exp
 - Tests: `tests/reranker.test.ts` (7 cases covering re-ranking by overlap, minScore threshold refusal, all-below-threshold empty, maxResults cap, empty query, RetrievalReranker assignability, and retrieve() integration with refusal).
 
 Next within Phase 11: **11.4 Representative evaluation**.
-| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
-| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
+| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation ✅ done | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
+| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks ✅ done | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
