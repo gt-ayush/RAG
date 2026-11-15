@@ -59,6 +59,7 @@ export { isRetryableProviderError, withRetry } from './resilience.js';
 
 export type { IndexedRecord, VectorStore } from './vector-store.js';
 export { MemoryVectorStore } from './memory-store.js';
+export { QdrantStore } from './qdrant-store.js';
 
 export type {
   AuthorizationContext,
