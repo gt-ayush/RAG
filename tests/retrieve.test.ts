@@ -57,18 +57,51 @@ describe('retrieve baseline', () => {
     expect(result).toEqual({ ok: true, value: [] });
   });
 
-  it('applies trusted tenant metadata filter when provided', async () => {
+  it('enforces trusted tenant authorization and fails closed on mismatches', async () => {
     const store = new MemoryVectorStore(2);
     await store.upsert([rec('a::0', 'a', [1, 0], 't1'), rec('b::0', 'b', [1, 0], 't2')]);
 
-    const result = await retrieve(
+    const ok = await retrieve(
+      { text: 'question', topK: 5 },
+      { embeddingProvider: providerFor([1, 0]), vectorStore: store },
+      { context: { tenantId: 't1' } },
+    );
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.value.map((r) => r.chunk.id)).toEqual(['a::0']);
+
+    const mismatch = await retrieve(
+      { text: 'question', topK: 5, tenantId: 't2' },
+      { embeddingProvider: providerFor([1, 0]), vectorStore: store },
+      { context: { tenantId: 't1' } },
+    );
+    expect(mismatch.ok).toBe(false);
+
+    const untrusted = await retrieve(
       { text: 'question', topK: 5, tenantId: 't1' },
       { embeddingProvider: providerFor([1, 0]), vectorStore: store },
+      { context: {} },
     );
+    expect(untrusted.ok).toBe(false);
+  });
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.map((r) => r.chunk.id)).toEqual(['a::0']);
+  it('applies trusted document allow-lists and fails closed on policy errors', async () => {
+    const store = new MemoryVectorStore(2);
+    await store.upsert([rec('a::0', 'a', [1, 0], 't1'), rec('b::0', 'b', [0.9, 0.1], 't1')]);
+
+    const allowed = await retrieve(
+      { text: 'question', topK: 5 },
+      { embeddingProvider: providerFor([1, 0]), vectorStore: store },
+      { context: { tenantId: 't1', allowedDocumentIds: ['b'] } },
+    );
+    expect(allowed.ok).toBe(true);
+    if (allowed.ok) expect(allowed.value.map((r) => r.sourceId)).toEqual(['b']);
+
+    const denied = await retrieve(
+      { text: 'question', topK: 5 },
+      { embeddingProvider: providerFor([1, 0]), vectorStore: store },
+      { context: { tenantId: 't1' }, evaluate: () => { throw new Error('policy down'); } },
+    );
+    expect(denied.ok).toBe(false);
   });
 
   it('validates request and embedding/provider failures', async () => {
