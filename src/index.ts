@@ -66,3 +66,11 @@ export type {
   RetrieveRequest,
 } from './retrieve.js';
 export { retrieve } from './retrieve.js';
+
+export type { GroundedPrompt } from './generate.js';
+export {
+  buildGroundedPrompt,
+  citationsFromResults,
+  formatEvidence,
+  insufficientContextAnswer,
+} from './generate.js';
