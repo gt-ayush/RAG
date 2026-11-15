@@ -21,6 +21,10 @@ export interface LanguageModel {
 
 export interface GenerateDependencies {
   model: LanguageModel;
+  /** If set, generation fails closed when provider reports/uses a different model. */
+  expectedModel?: string;
+  /** Optional timeout for model generation in milliseconds. */
+  timeoutMs?: number;
 }
 
 const UNTRUSTED_EVIDENCE_WARNING =
@@ -96,10 +100,37 @@ function selectCitations(
   return citationsFromResults(selected.length > 0 ? selected : context);
 }
 
+function isModelGeneration(value: unknown): value is ModelGeneration {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  const textOk = v.text === undefined || typeof v.text === 'string';
+  const citedOk =
+    v.citedChunkIds === undefined ||
+    (Array.isArray(v.citedChunkIds) && v.citedChunkIds.every((id) => typeof id === 'string'));
+  const insuffOk = v.insufficientContext === undefined || typeof v.insufficientContext === 'boolean';
+  return textOk && citedOk && insuffOk;
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs?: number): Promise<T> {
+  if (!timeoutMs || !Number.isFinite(timeoutMs) || timeoutMs <= 0) return promise;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('model generation timed out')), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * Generate a grounded answer from retrieved evidence.
  * Citations are restricted to real retrieved sources; empty/insufficient context
- * yields an explicit insufficient-context response.
+ * yields an explicit insufficient-context response. Provider/model failures are
+ * surfaced explicitly (no silent model fallback or alternate-provider retry).
  */
 export async function generateGroundedAnswer(
   request: GenerationRequest,
@@ -110,26 +141,37 @@ export async function generateGroundedAnswer(
     return { ok: false, issues: [{ path: 'query', message: 'query is required' }] };
   }
 
+  if (deps.expectedModel && deps.model.model !== deps.expectedModel) {
+    return {
+      ok: false,
+      issues: [{ path: 'model', message: 'unapproved or unavailable model for this request' }],
+    };
+  }
+
   if (request.context.length === 0) {
     return { ok: true, value: insufficientContextAnswer(query, []) };
   }
 
   const prompt = buildGroundedPrompt({ query, context: request.context });
 
-  let output: ModelGeneration;
+  let raw: unknown;
   try {
-    output = await deps.model.generate(prompt);
+    raw = await withTimeout(deps.model.generate(prompt), deps.timeoutMs);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'generation failed';
     return { ok: false, issues: [{ path: 'model', message }] };
   }
 
-  const text = typeof output.text === 'string' ? output.text.trim() : '';
-  if (output.insufficientContext || text.length === 0) {
+  if (!isModelGeneration(raw)) {
+    return { ok: false, issues: [{ path: 'model', message: 'malformed model response' }] };
+  }
+
+  const text = typeof raw.text === 'string' ? raw.text.trim() : '';
+  if (raw.insufficientContext || text.length === 0) {
     return { ok: true, value: insufficientContextAnswer(query, request.context) };
   }
 
-  const citations = selectCitations(request.context, output.citedChunkIds);
+  const citations = selectCitations(request.context, raw.citedChunkIds);
   return {
     ok: true,
     value: {
