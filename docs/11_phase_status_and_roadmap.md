@@ -142,7 +142,24 @@ Implemented a minimal HTTP service boundary for the RAG pipeline in `src/server.
 - Exports `ServerDependencies`, `QueryRequestBody`, `QueryResponseBody`, `ErrorResponseBody`, `createHttpServer` from `src/index.ts`.
 - Tests: `tests/server.test.ts` (9 cases covering health, ready, query success, insufficient context, validation errors, bad JSON, 404, ready-unavailable).
 
-Next within Phase 12: **12.2 Server-side authorization**.
+Next within Phase 12: **12.2 Server-side authorization** ✅ done (below).
+
+### Phase 12.2 — Server-side authorization (complete)
+
+Implemented server-side authorization enforcement at the API boundary in `src/authorization.ts` and `src/server.ts`:
+
+- Added `AuthorizationPrincipal`, `AuthorizationDecision`, `AuthorizationPolicy`, and `TenantAuthorizationPolicyConfig` types to `src/types.ts`.
+- Created `src/authorization.ts` with `TenantAuthorizationPolicy` class:
+  - Tenant isolation: principal's tenantId must match the configured tenant (cross-tenant access denied).
+  - Document allow-list: if configured, every document referenced by the request must be in the allow-list.
+  - Fail-closed: missing principal, tenant mismatch, document mismatch, or policy errors all produce `allowed: false`.
+  - Never logs principal identifiers or document contents.
+  - `makeAuthorizationPolicy()` factory returns a callable `AuthorizationPolicy`.
+  - `decisionToAuthzComponents()` converts decisions to `RetrievalAuthorization` context for `retrieve()`.
+- `src/server.ts` updated: `ServerDependencies` accepts optional `authorizationPolicy` and `authorizationPrincipal`. The `/query` handler resolves the principal, evaluates the policy before any pipeline call, returns 401 for missing principal and 403 for denied decisions. Client-supplied `tenantId` in the request body is not trusted.
+- Tests: `tests/authorization.test.ts` (8 cases covering tenant isolation, cross-tenant denial, missing tenant, document allow-list, factory, decision conversion) plus 3 server integration cases (valid principal → 200, cross-tenant → 403, no principal → 401).
+
+Next within Phase 12: **12.3 Durable ingestion lifecycle**.
 
 ### Phase 11.3 — Reranking & thresholding (complete)
 
@@ -160,7 +177,7 @@ Implemented the existing `RetrievalReranker` hook with a concrete scorer and exp
 
 Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
-| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
+| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
