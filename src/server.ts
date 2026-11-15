@@ -1,16 +1,29 @@
 import type { EmbeddingProvider } from './embeddings.js';
 import type { LanguageModel } from './generate.js';
-import type { PipelineConfig, Result } from './types.js';
+import type {
+  AuthorizationDecision,
+  AuthorizationPolicy,
+  AuthorizationPrincipal,
+  PipelineConfig,
+  Result,
+  TenantAuthorizationPolicyConfig,
+} from './types.js';
 import type { VectorStore } from './vector-store.js';
-import type { AuthorizationContext, AuthorizationEvaluator, RetrievalReranker, RetrieveRequest } from './retrieve.js';
+import type {
+  AuthorizationContext,
+  AuthorizationEvaluator,
+  RetrievalReranker,
+  RetrieveRequest,
+} from './retrieve.js';
 import { retrieve } from './retrieve.js';
 import { generateGroundedAnswer } from './generate.js';
+import { decisionToAuthzComponents, makeAuthorizationPolicy } from './authorization.js';
 import { createStructuredLogger, type Logger, MetricsRecorder } from './observability.js';
 import * as http from 'http';
 
 /**
  * Source-of-truth keywords: HTTP server, API boundary, health, readiness,
- * structured errors
+ * structured errors, authorization, tenant isolation
  */
 
 export interface ServerDependencies {
@@ -19,7 +32,12 @@ export interface ServerDependencies {
   vectorStore: VectorStore;
   languageModel: LanguageModel;
   reranker?: RetrievalReranker;
-  authorization?: { context: AuthorizationContext; evaluate?: AuthorizationEvaluator };
+  /** Optional authorization policy evaluated server-side before retrieval. */
+  authorizationPolicy?: AuthorizationPolicy;
+  /** Optional trusted principal resolved from request context (e.g. JWT). */
+  authorizationPrincipal?: AuthorizationPrincipal;
+  /** Optional tenant config for building a default authorization policy. */
+  authorizationTenantConfig?: TenantAuthorizationPolicyConfig;
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -117,14 +135,6 @@ function errorResponse(code: string, message: string): ErrorResponseBody {
   return { error: { code, message } };
 }
 
-function buildAuthz(deps: ServerDependencies): { context: AuthorizationContext; evaluate?: AuthorizationEvaluator } | undefined {
-  if (!deps.authorization) return undefined;
-  return {
-    context: deps.authorization.context,
-    ...(deps.authorization.evaluate ? { evaluate: deps.authorization.evaluate } : {}),
-  };
-}
-
 /**
  * Creates a minimal HTTP service boundary for the RAG pipeline.
  *
@@ -135,10 +145,11 @@ function buildAuthz(deps: ServerDependencies): { context: AuthorizationContext; 
  *
  * All responses are JSON. Errors are structured and never leak secrets or
  * provider internals. Request validation happens before any pipeline call.
+ * Authorization is evaluated server-side before retrieval; denied requests
+ * receive 401/403 and never reach the pipeline.
  */
 export function createHttpServer(deps: ServerDependencies): http.Server {
   const { config, embeddingProvider, vectorStore, languageModel, logger, metrics } = deps;
-  const authz = buildAuthz(deps);
 
   const server = http.createServer(async (req, res) => {
     const startMs = Date.now();
@@ -193,14 +204,40 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
         }
 
         const { query } = validated.value;
-        const tenantId = validated.value.tenantId;
+
+        // Resolve trusted authorization context before any pipeline call.
+        // Fail closed: no principal or denied policy → 401/403, never 200.
+        let authz: { context: AuthorizationContext; evaluate?: AuthorizationEvaluator } | undefined;
+        if (deps.authorizationPolicy || deps.authorizationTenantConfig) {
+          const policy =
+            deps.authorizationPolicy ??
+            makeAuthorizationPolicy(deps.authorizationTenantConfig!);
+          const principal = deps.authorizationPrincipal;
+          if (!principal) {
+            sendError('unauthorized', 'missing trusted principal', 401);
+            return;
+          }
+          const decision = await policy(principal, {
+            text: query,
+            topK: validated.value.topK ?? 5,
+            ...(validated.value.tenantId ? { tenantId: validated.value.tenantId } : {}),
+          });
+          if (!decision.allowed) {
+            sendError('forbidden', decision.reason, 403);
+            return;
+          }
+          const components = decisionToAuthzComponents(decision);
+          authz = {
+            context: components.context,
+          };
+        }
 
         const retrieveRequest: RetrieveRequest = {
           text: query,
           topK: validated.value.topK ?? 5,
         };
-        if (tenantId !== undefined) {
-          retrieveRequest.tenantId = tenantId;
+        if (validated.value.tenantId !== undefined) {
+          retrieveRequest.tenantId = validated.value.tenantId;
         }
 
         const retrieved = await retrieve(
