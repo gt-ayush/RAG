@@ -510,8 +510,15 @@ Do not redo completed phases by default. Re-verify a phase's outputs only when t
 
 
 ## 18. Current Priority
-Phases 0–9 are complete for the local baseline (status table in Section 17; roadmap and per-phase evidence in `docs/11_phase_status_and_roadmap.md`). Preserve that verified behavior and its passing checks.
 
-Default next increment: **Phase 10 — Real Providers and Persistent Stores**, starting with the smallest adapter slice the user requests (embedding provider first is the smallest). Keep adapters behind the existing `EmbeddingProvider` / `VectorStore` / `LanguageModel` interfaces, keep model/version pinning and fail-closed behavior, and do not add paid services, new vector databases, or cloud infrastructure without explicit authorization.
+Phases 0–14 are **complete for the local baseline** (status table in Section 17; roadmap and per-phase evidence in `docs/11_phase_status_and_roadmap.md`; handover report in `docs/14_release_readiness.md`). All 54 sub-phases across 14 phases are complete. All baseline checks pass (typecheck, 197 tests across 27 files, build, evaluate, benchmark smoke, benchmark realistic).
 
-Before any new work, re-read `README.md`, `package.json`, `src/`, and `tests/` to confirm the current state, then state the target phase, sub-phase, and expected evidence. Do not introduce unrelated campus food ordering requirements.
+The repository provides a working TypeScript RAG baseline library suitable for continued development. Real provider adapters (embedding, LLM, vector store) are implemented but not wired by default — they require `EMBEDDING_BASE_URL`, `VECTOR_DB_URL`, and `LLM_BASE_URL` environment variables to be configured.
+
+Before any new work, re-read `README.md`, `package.json`, `src/`, and `tests/` to confirm the current state. Do not introduce unrelated campus food ordering requirements.
+
+If new work is needed beyond the baseline, the next increments would be:
+1. Wire real providers (set `EMBEDDING_BASE_URL`, `VECTOR_DB_URL`, `LLM_BASE_URL` env vars)
+2. Wire real providers into `src/index.ts` and `src/server.ts`
+3. Deploy `src/server.ts` as an HTTP service
+4. Collect operational evidence for SOC 2/GDPR claims (currently unverified)
