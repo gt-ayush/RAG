@@ -91,6 +91,39 @@ describe('parsePipelineConfig', () => {
     });
   });
 
+  it('parses optional LLM provider fields', () => {
+    const result = parsePipelineConfig({
+      ...validEnv,
+      LLM_BASE_URL: 'https://api.example.com/v1',
+      LLM_TIMEOUT_MS: '30000',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.llm).toEqual({
+      apiKey: 'test-llm-key',
+      model: 'test-model',
+      baseUrl: 'https://api.example.com/v1',
+      timeoutMs: 30000,
+    });
+  });
+
+  it('reports invalid optional LLM provider fields', () => {
+    const result = parsePipelineConfig({
+      ...validEnv,
+      LLM_BASE_URL: 'not-a-url',
+      LLM_TIMEOUT_MS: '-5',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.map((i) => i.path)).toEqual(
+      expect.arrayContaining(['LLM_BASE_URL', 'LLM_TIMEOUT_MS']),
+    );
+    const serialized = JSON.stringify(result.issues);
+    expect(serialized).not.toContain('secret');
+  });
+
   it('reports invalid optional embedding provider fields', () => {
     const result = parsePipelineConfig({
       ...validEnv,
