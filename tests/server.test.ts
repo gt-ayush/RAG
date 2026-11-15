@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as http from 'http';
 import { createHttpServer } from '../src/server.js';
 import type { ServerDependencies } from '../src/server.js';
+import { makeAuthorizationPolicy } from '../src/authorization.js';
 import type { Chunk, Embedding, ModelGeneration, RetrievalResult } from '../src/types.js';
 import type { LanguageModel } from '../src/generate.js';
 import type { EmbeddingProvider } from '../src/embeddings.js';
@@ -240,5 +241,58 @@ describe('HTTP server boundary', () => {
         });
       });
     });
+  });
+
+  it('POST /query with authorization policy and valid principal returns 200', async () => {
+    const chunk = makeChunk('c1', 'd1', 'remote work policy for employees');
+    const result = makeResult(chunk, 0.9, 1);
+    const { port, server } = await startTestServer({
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: vi.fn(async () => ({ ok: true, value: [result] })),
+      } as VectorStore,
+      authorizationPolicy: makeAuthorizationPolicy({
+        tenantId: 'tenant-a',
+        allowedDocumentIds: ['d1'],
+      }),
+      authorizationPrincipal: { tenantId: 'tenant-a', allowedDocumentIds: ['d1'] },
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'remote work policy', topK: 5 });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      answer: {
+        insufficientContext: false,
+      },
+    });
+  });
+
+  it('POST /query with cross-tenant principal returns 403', async () => {
+    const { port, server } = await startTestServer({
+      authorizationPolicy: makeAuthorizationPolicy({
+        tenantId: 'tenant-a',
+      }),
+      authorizationPrincipal: { tenantId: 'tenant-b' },
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: 'forbidden' } });
+  });
+
+  it('POST /query with no principal returns 401 when policy configured', async () => {
+    const { port, server } = await startTestServer({
+      authorizationPolicy: makeAuthorizationPolicy({
+        tenantId: 'tenant-a',
+      }),
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ error: { code: 'unauthorized' } });
   });
 });
