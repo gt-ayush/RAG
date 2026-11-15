@@ -1,0 +1,42 @@
+{
+  "dataset": {
+    "path": "data/eval/golden-v0.2.0.json",
+    "version": "0.2.0",
+    "sampleSize": 10,
+    "method": "synthetic smoke eval; deterministic mock embeddings/model; chunkSize=200 overlap=0; topK=3; separate retrieval+generation passes"
+  },
+  "retrieval": {
+    "recallAtK": 1,
+    "mrr": 1,
+    "sampleSize": 10
+  },
+  "generation": {
+    "insufficientContextCases": 3,
+    "sampleSize": 10
+  },
+  "evaluatedAt": "2026-11-15",
+  "limitations": [
+    "Synthetic baseline only; deterministic mock embeddings/model.",
+    "Not representative of production/quality/SLO evidence.",
+    "Baseline for regression delta checks only — do not treat as quality certification."
+  ],
+  "previousVersion": {
+    "dataset": "data/eval/golden-v0.1.0.json",
+    "version": "0.1.0",
+    "retrieval": {
+      "recallAtK": 1,
+      "mrr": 1,
+      "sampleSize": 3
+    },
+    "generation": {
+      "insufficientContextCases": 1,
+      "sampleSize": 3
+    }
+  },
+  "delta": {
+    "sampleSizeChange": 7,
+    "recallAtKChange": 0,
+    "mrrChange": 0,
+    "note": "Expanded dataset from n=3 to n=10; metrics unchanged on deterministic mocks. Delta indicates regression stability, not quality improvement."
+  }
+}
