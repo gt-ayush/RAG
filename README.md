@@ -81,9 +81,18 @@ VECTOR_DB_API_KEY=
 
 # Embedding Model
 EMBEDDING_MODEL=
+
+# Embedding provider (optional; OpenAI-compatible HTTP embeddings endpoint).
+# Leave unset to use the mock/in-memory baseline until a real provider is configured.
+EMBEDDING_BASE_URL=
+EMBEDDING_DIMENSIONS=
+EMBEDDING_API_KEY=
+EMBEDDING_TIMEOUT_MS=
 ```
 
 Config parsing/validation is available via `parsePipelineConfig`, `loadPipelineConfig`, and `loadPipelineConfigFromProcessEnv` (`src/config.ts`) and returns non-sensitive validation issues.
+
+When `EMBEDDING_BASE_URL` is set, `src/config.ts` parses it plus the optional `EMBEDDING_DIMENSIONS`, `EMBEDDING_API_KEY`, and `EMBEDDING_TIMEOUT_MS` fields. These feed `src/embedding-provider.ts`, a generic OpenAI-compatible HTTP embeddings adapter (`HttpEmbeddingProvider`) that implements the existing `EmbeddingProvider` contract: model/version pinning, dimension validation, per-request timeout, bounded retries for transient 429/5xx, and fail-closed handling with no silent fallback. Provider SDK details stay inside the adapter; pipeline modules never call a vendor SDK directly.
 
 ## Usage (current API, baseline)
 
