@@ -159,7 +159,26 @@ Implemented server-side authorization enforcement at the API boundary in `src/au
 - `src/server.ts` updated: `ServerDependencies` accepts optional `authorizationPolicy` and `authorizationPrincipal`. The `/query` handler resolves the principal, evaluates the policy before any pipeline call, returns 401 for missing principal and 403 for denied decisions. Client-supplied `tenantId` in the request body is not trusted.
 - Tests: `tests/authorization.test.ts` (8 cases covering tenant isolation, cross-tenant denial, missing tenant, document allow-list, factory, decision conversion) plus 3 server integration cases (valid principal → 200, cross-tenant → 403, no principal → 401).
 
-Next within Phase 12: **12.3 Durable ingestion lifecycle**.
+Next within Phase 12: **12.3 Durable ingestion lifecycle** ✅ done (below).
+
+### Phase 12.3 — Durable ingestion lifecycle (complete)
+
+Implemented durable ingestion lifecycle tracking in `src/ingestion-lifecycle.ts`:
+
+- Added `IngestedSourceRecord`, `IngestionLifecycleResult`, and `ReindexDecision` types to `src/types.ts`.
+- Created `src/ingestion-lifecycle.ts` with `IngestionLifecycleTracker` class:
+  - `shouldReindex(documentId, contentHash)` — compares content hash against stored hash to detect new/changed/unchanged sources.
+  - `recordIngestion(...)` — records source metadata (content hash, ingestedAt, chunk count, version) for re-index detection.
+  - `recordChunks(...)` — maps chunk IDs to documents for lifecycle tracking.
+  - `deleteDocument(documentId, store, verifyDeletion?)` — deletes from store, runs verification sweep, clears tracking. Fail-closed on store failure or residual chunks.
+  - `erasureDocument(documentId, store, verifyDeletion?)` — same as delete with explicit erasure operation type for GDPR-style erasure auditing.
+  - `reindexDocument(...)` — records updated ingestion after re-chunk/re-embed/re-upsert.
+  - `getSourceRecords()` / `recordSource()` — serialization/rehydration for durability across restarts.
+- Pluggable `verifyDeletion` function (default queries store with topK: 1 to check for residual chunks).
+- Tests: `tests/ingestion-lifecycle.test.ts` (11 cases covering re-index decisions, source tracking, deletion with verification, store failure handling, residual chunk detection, erasure, re-index, and source count).
+- Exports `IngestedSourceRecord`, `IngestionLifecycleResult`, `ReindexDecision` types and `IngestionLifecycleTracker` from `src/index.ts`.
+
+Next within Phase 12: **12.4 Deployment & runbooks**.
 
 ### Phase 11.3 — Reranking & thresholding (complete)
 
@@ -177,7 +196,7 @@ Implemented the existing `RetrievalReranker` hook with a concrete scorer and exp
 
 Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
-| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
+| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
