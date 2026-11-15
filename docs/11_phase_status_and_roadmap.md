@@ -56,7 +56,7 @@ Canonical sub-phase definitions and exit criteria are in `AGENTS.md` §17. Summa
 
 | Phase | Goal | Sub-phases | Exit signal |
 |---|---|---|---|
-| 10 — Real Providers and Persistent Stores | Replace mocks/in-memory with configured integrations behind existing interfaces | 10.1 Embedding adapter ✅ done · 10.2 Vector store adapter · 10.3 LLM gateway adapter · 10.4 Integration tests & setup docs | Adapters honor existing contracts; model/dimension checks enforced; failures explicit (no silent fallback); setup docs accurate; any paid/external usage explicitly authorized and measured |
+| 10 — Real Providers and Persistent Stores | Replace mocks/in-memory with configured integrations behind existing interfaces | 10.1 Embedding adapter ✅ done · 10.2 Vector store adapter ✅ done · 10.3 LLM gateway adapter · 10.4 Integration tests & setup docs | Adapters honor existing contracts; model/dimension checks enforced; failures explicit (no silent fallback); setup docs accurate; any paid/external usage explicitly authorized and measured |
 
 ### Phase 10.1 — Embedding adapter (complete)
 
@@ -70,7 +70,22 @@ Implemented `src/embedding-provider.ts` — a generic OpenAI-compatible HTTP emb
 - Tests: `tests/embedding-provider.test.ts` (11 cases, mocked `fetch` — no paid provider quota used).
 - Config: optional `EMBEDDING_BASE_URL`, `EMBEDDING_DIMENSIONS`, `EMBEDDING_API_KEY`, `EMBEDDING_TIMEOUT_MS` parsed by `parsePipelineConfig` (`.env.example` updated).
 
-Next within Phase 10: **10.2 Vector store adapter** (Qdrant Cloud store using `@qdrant/js-client-rest`, already a dependency).
+Next within Phase 10: **10.2 Vector store adapter** ✅ done (below).
+
+### Phase 10.2 — Vector store adapter (complete)
+
+Implemented `src/qdrant-store.ts` — a Qdrant Cloud vector store adapter behind the existing `VectorStore` contract:
+
+- `QdrantStore` wraps `@qdrant/js-client-rest` (`QdrantClient`): connects to `VECTOR_DB_URL` with `VECTOR_DB_API_KEY`, writes to `QDRANT_COLLECTION`.
+- Deterministic chunk-id→UUID mapping (`chunkIdToPointId`) since Qdrant point ids must be UUIDs or numbers; original chunk id preserved in payload `chunk_id`.
+- Qdrant Cloud strict mode: `document_id` and `tenant_id` payload indexes created on first upsert (`createPayloadIndex`).
+- Server-side filter pushdown: `tenant_id` and `document_id` filters sent in the Qdrant query filter (never client-side only).
+- Idempotent upsert (`wait: true`), delete-by-document-id (Qdrant returns no count → reports `-1`), dimension validation on upsert/query.
+- Fail-closed: Qdrant client errors surface as `Result` issues; no partial success, no silent fallback; API key never logged or echoed in error messages.
+- Tests: `tests/qdrant-store.test.ts` (9 cases, spied `QdrantClient` prototype — no real cloud calls).
+- Config: `VECTOR_DB_URL`, `VECTOR_DB_API_KEY`, `QDRANT_COLLECTION` (`.env.example` updated).
+
+Next within Phase 10: **10.3 LLM gateway adapter**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation · 11.2 Sparse/hybrid + fusion · 11.3 Reranking & thresholding · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
