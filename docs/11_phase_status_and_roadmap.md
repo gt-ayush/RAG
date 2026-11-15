@@ -127,8 +127,24 @@ Implemented sparse/hybrid retrieval with RRF fusion in `src/retrieve.ts`:
 - Server-side document allowlist applied after fusion; optional reranker and topK cap preserved.
 - Tests: `tests/retrieve-hybrid.test.ts` (6 cases covering dense-only baseline, hybrid off with sparseStore present, RRF fusion ranking, sparse failure fallback, document allowlist after fusion, and empty results).
 
-Next within Phase 11: **11.3 Reranking & thresholding**.
-| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
+Next within Phase 11: **11.3 Reranking & thresholding** ✅ done (below).
+
+### Phase 11.3 — Reranking & thresholding (complete)
+
+Implemented the existing `RetrievalReranker` hook with a concrete scorer and explicit refusal threshold:
+
+- Added `RerankerConfig` (minScore, maxResults) types to `src/types.ts`.
+- Created `src/reranker.ts` with `LexicalReranker` class implementing `RetrievalReranker`:
+  - Scores results by token overlap between query and chunk content (no external model, no network calls).
+  - Drops results below `minScore` threshold (empty-context refusal → insufficient context in generation).
+  - Caps results at `maxResults`.
+  - Fail-closed: errors surface as `Result` issues; no partial success, no silent fallback; never logs chunk content.
+- `LexicalReranker` is exported from `src/index.ts` and assignable to the `RetrievalReranker` hook in `RetrieverDependencies`.
+- `retrieve()` already calls `deps.reranker` when present; when the reranker drops all results below threshold, empty context flows to `generateGroundedAnswer` which returns `insufficientContextAnswer`.
+- Tests: `tests/reranker.test.ts` (7 cases covering re-ranking by overlap, minScore threshold refusal, all-below-threshold empty, maxResults cap, empty query, RetrievalReranker assignability, and retrieve() integration with refusal).
+
+Next within Phase 11: **11.4 Representative evaluation**.
+| 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
