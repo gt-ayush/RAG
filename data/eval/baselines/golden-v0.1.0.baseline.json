@@ -1,0 +1,33 @@
+{
+  "runId": "golden-v0.1.0-smoke-baseline-2026-11-15",
+  "measuredAt": "2026-11-15",
+  "dataset": {
+    "path": "data/eval/golden-v0.1.0.json",
+    "version": "0.1.0",
+    "name": "rag-golden-smoke",
+    "sampleSize": 3
+  },
+  "configuration": {
+    "chunking": { "chunkSize": 200, "chunkOverlap": 0 },
+    "embedding": { "provider": "deterministic-mock", "model": "mock-embed-v1", "dimensions": 8 },
+    "vectorStore": { "kind": "memory" },
+    "retrieval": { "topK": 3, "filters": null, "reranker": null },
+    "generation": { "provider": "deterministic-mock", "model": "mock-lm-v1" }
+  },
+  "method": "Automated smoke evaluation via tests/eval.smoke.test.ts. For each case, synthetic documents were chunked, embedded with a deterministic keyword-hash mock embedder, upserted into MemoryVectorStore, retrieved (topK=3), then passed to a deterministic mock language model. Retrieval and generation evaluated separately.",
+  "results": {
+    "retrieval": {
+      "recallAt3": 1,
+      "mrr": 1
+    },
+    "generation": {
+      "insufficientContextCases": 1,
+      "insufficientContextCaseIds": ["smoke-003"]
+    }
+  },
+  "limitations": [
+    "Measured on tiny synthetic smoke dataset (n=3); not statistically meaningful and not evidence of production or domain quality.",
+    "Mock embedding and generation models were used; results do not reflect real provider/model behavior, latency, cost, or faithfulness under realistic conditions.",
+    "No nDCG@K, human-judged faithfulness/answer relevance, context precision/recall, latency percentiles, or cost-per-query were measured in this run."
+  ]
+}
