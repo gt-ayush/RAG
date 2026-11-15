@@ -47,9 +47,31 @@ export function parsePipelineConfig(env: Env): Result<PipelineConfig> {
   const vectorDbUrl = readRequired(env, 'VECTOR_DB_URL', issues);
   const vectorDbApiKey = readOptional(env, 'VECTOR_DB_API_KEY');
   const embeddingModel = readRequired(env, 'EMBEDDING_MODEL', issues);
+  const embeddingBaseUrl = readOptional(env, 'EMBEDDING_BASE_URL');
+  const embeddingDimensions = readOptional(env, 'EMBEDDING_DIMENSIONS');
+  const embeddingApiKey = readOptional(env, 'EMBEDDING_API_KEY');
+  const embeddingTimeoutMs = readOptional(env, 'EMBEDDING_TIMEOUT_MS');
 
   if (vectorDbUrl) {
     validateUrl(vectorDbUrl, 'VECTOR_DB_URL', issues);
+  }
+
+  if (embeddingBaseUrl) {
+    validateUrl(embeddingBaseUrl, 'EMBEDDING_BASE_URL', issues);
+  }
+
+  if (embeddingDimensions) {
+    const parsed = Number(embeddingDimensions);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      issues.push({ path: 'EMBEDDING_DIMENSIONS', message: 'must be a positive integer' });
+    }
+  }
+
+  if (embeddingTimeoutMs) {
+    const parsed = Number(embeddingTimeoutMs);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      issues.push({ path: 'EMBEDDING_TIMEOUT_MS', message: 'must be a positive integer' });
+    }
   }
 
   if (issues.length > 0) {
@@ -68,6 +90,10 @@ export function parsePipelineConfig(env: Env): Result<PipelineConfig> {
     },
     embedding: {
       model: embeddingModel as string,
+      ...(embeddingBaseUrl ? { baseUrl: embeddingBaseUrl } : {}),
+      ...(embeddingDimensions ? { dimensions: Number(embeddingDimensions) } : {}),
+      ...(embeddingApiKey ? { apiKey: embeddingApiKey } : {}),
+      ...(embeddingTimeoutMs ? { timeoutMs: Number(embeddingTimeoutMs) } : {}),
     },
   };
 
