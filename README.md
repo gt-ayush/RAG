@@ -1,213 +1,184 @@
 # RAG — Retrieval-Augmented Generation
 
-A TypeScript-based RAG (Retrieval-Augmented Generation) project for building intelligent, source-grounded AI applications.
+A TypeScript-based RAG (Retrieval-Augmented Generation) project with a **working baseline library implementation** (ingestion/chunking, embedding/store abstractions, retrieval, grounded generation helpers, evaluation, and security/operations documentation) and a separate **enterprise architecture & system analysis package** (target design, not implemented).
 
-This repository also contains the **Enterprise RAG Architecture & System Analysis Package** — a production-grade, 4-part design deliverable for the enterprise variant (Financial Services domain, AWS, SOC 2 Type II + GDPR, 10M+ documents). See [Enterprise Architecture & System Analysis Package](#enterprise-architecture--system-analysis-package).
+> **Status:** the repository currently provides modular TypeScript APIs and local/in-memory baselines (with synthetic/mock smoke evaluation). It does **not** implement a production service, real LLM/embedding/vector-database adapters, or enterprise compliance controls claimed in architecture docs.
 
-## What is RAG?
+## What is implemented now (baseline)
 
-**Retrieval-Augmented Generation (RAG)** enhances Large Language Models (LLMs) by retrieving relevant information from an external knowledge base before generating a response. Instead of relying solely on the model's internal training data, RAG grounds the model's answers in fresh, factual, and source-specific documents.
+- **TypeScript foundation (ESM/NodeNext):** `src/` + `dist/` build, strict TS config, typed contracts, env/config validation (`.env.example`, `src/config.ts`).
+- **Ingestion:** baseline text parsing (`.txt`, `.md`, `.markdown`, `.text`) with explicit `ok/empty/unsupported/error` outcomes, deterministic chunking with size/overlap validation, traceable metadata/offsets, content hashes, and idempotent batch behavior (`src/ingest.ts`).
+- **Embeddings & indexing:** provider/store interfaces, model/dimension/vector validation, resilience/retry helpers, and in-memory vector store with idempotent upsert, document deletion lifecycle, and traceable query results (`src/embeddings.ts`, `src/vector-store.ts`, `src/memory-store.ts`, `src/resilience.ts`).
+- **Retrieval:** baseline query embedding + vector retrieval, optional reranker hook, and trusted server-side authorization hooks (tenant/document allow-list, fail-closed policy evaluation when provided) (`src/retrieve.ts`).
+- **Generation:** grounded prompt assembly with system/user/evidence isolation, untrusted-evidence instructions, citation restriction to retrieved sources, insufficient-context handling, and provider robustness controls (timeout, malformed-response checks, expected-model fail-closed, no silent fallback) (`src/generate.ts`).
+- **Evaluation (synthetic smoke):** versioned dataset and measured baseline with deterministic mocks (Recall@3/MRR and insufficient-context case), reproducible via `npm run evaluate` (`data/eval/*`, `docs/04_evaluation_methodology.md`, `docs/05_evaluation_baseline.md`).
+- **Security/operations docs & primitives:** threat/control review, security tests, compliance gap assessment, local ops benchmark, runtime-controls review, privacy-conscious observability primitives (`docs/06`–`docs/10`, `scripts/benchmark-smoke.mjs`, `src/observability.ts`).
 
-### Why RAG?
+## Planned / not yet implemented
 
-- **Reduces hallucinations** — Answers are grounded in real documents
-- **Up-to-date knowledge** — No training cutoff; just update the knowledge base
-- **Domain expertise** — Inject proprietary or niche data (medical, legal, code)
-- **Source attribution** — Cite where every answer comes from
-- **Cost-effective** — Cheaper than fine-tuning for most use cases
+- Real embedding and LLM provider adapters (OpenAI/other SDKs), persistent vector databases (e.g. Chroma/Qdrant/FAISS/Weaviate integrations), and production API/service runtime.
+- Rich document parsing (PDF/HTML/DOCX/EML/XLSX/OCR/tables), hybrid sparse+dense retrieval, BM25/RRF, cross-encoder reranking, and measured quality improvements on representative datasets.
+- End-to-end authenticated service boundary, durable multi-tenant ACL enforcement, centralized audit/security logging, GDPR erasure cascade verification, data residency enforcement, and production SLO/HA/DR evidence.
+- Enterprise architecture in `docs/01-03`/`plan.md` is a **target design** (Financial Services, AWS, SOC 2 Type II + GDPR, 10M+ docs) — not proof of implementation or compliance.
 
-## Architecture
+## Project structure (current)
 
-```
-User Query → [Embed] → [Vector DB Search] → [Top-K Chunks] → [LLM Prompt] → Answer
-                                  ↑
-                            Knowledge Base
-```
-
-### Pipeline Stages
-
-1. **Ingestion** — Parse documents → Chunk → Embed → Store in vector DB
-2. **Retrieval** — Embed query → Find similar chunks → (Optional) Re-rank
-3. **Generation** — Build prompt with context → LLM → Answer with citations
-
-## Enterprise Architecture & System Analysis Package
-
-Production-grade architecture & system analysis for the enterprise variant of this RAG system. The package is a 4-part engineering deliverable; `docs/` holds Parts 2–4 and `note.md` is a synced single-file working copy that also archives the Part 1 setup script (executed once to generate `docs/`, then removed from the repo at the owner's request).
-
-**Parameters**
-
-| Parameter | Value |
-|---|---|
-| Domain / Industry | Financial Services (contracts, filings, research, regulatory guidance) |
-| Cloud / Infrastructure | AWS — us-east-1 primary (a/b/c), eu-west-1 for EU data residency |
-| Security & Compliance | SOC 2 Type II + GDPR |
-| Scale & SLA | 10M+ documents · P95 < 800 ms · 99.9% monthly availability |
-
-**Deliverables**
-
-| Part | Deliverable | Location |
-|---|---|---|
-| 1 | `pathlib` docs-scaffolding script (idempotent, atomic writes, logging, exit codes) | `note.md` § PART 1 (archived; scaffold already executed) |
-| 2 | Requirement Analysis — scope & vision, human/system actors, 8 FRs, 7 quantitative NFRs, constraints | `docs/01_requirement_analysis.md` |
-| 3 | DFD Level 0 (context) & Level 1 (decomposed) in Mermaid.js, + data-flow inventory & store registry | `docs/02_data_flow_diagrams.md` |
-| 4 | Spiral SDLC plan — 3 loops × 4 quadrants (Naive PoC → Advanced Optimization → Production Enterprise) | `docs/03_spiral_sdlc_plan.md` |
-
-Key architectural decisions: hybrid dense (HNSW/ANN) + sparse (BM25) retrieval with RRF fusion (k = 60), cross-encoder re-ranking (top-5, threshold 0.75), pre-retrieval RBAC/tenant filter pushdown, LLM-gateway abstraction (model-agnostic), self-hosted Qdrant on EKS (no proprietary vector SaaS), immutable WORM + Merkle audit logging, GDPR erasure cascade.
-
-The scaffold was executed once to produce `docs/`. The Part 1 script (archived in `note.md` § PART 1) was removed from the repo at the owner's request; to regenerate or repair the scaffold, copy that script to `scripts/setup_docs.py` and run:
-
-```bash
-python3 scripts/setup_docs.py            # idempotent; skips existing files
-python3 scripts/setup_docs.py --force    # reseed existing files to metadata stubs (destructive)
-```
-
-## Project Structure
-
-```
+```text
 RAG/
-├── src/
-│   ├── index.ts        # Entry point
-│   ├── ingest.ts       # Document ingestion & chunking
-│   ├── retrieve.ts     # Vector search & re-ranking
-│   ├── generate.ts     # LLM prompt & response generation
-│   └── types.ts        # Shared types & interfaces
-├── data/               # Source documents
-├── docs/               # Enterprise architecture & system analysis package (Parts 2–4)
-│   ├── 01_requirement_analysis.md
-│   ├── 02_data_flow_diagrams.md
-│   ├── 03_spiral_sdlc_plan.md
-│   └── assets/
-├── tests/              # Unit & integration tests
-├── note.md             # Synced working copy (archives Part 1 setup script)
+├── src/                         # TypeScript source (ESM)
+│   ├── index.ts                 # Public exports
+│   ├── types.ts                 # Shared domain/config/result types
+│   ├── config.ts                # Env/config parsing & validation
+│   ├── ingest.ts                # Parsing, chunking, batch ingestion
+│   ├── embeddings.ts            # Embedding contracts/validation/helpers
+│   ├── vector-store.ts          # Vector store contract
+│   ├── memory-store.ts          # In-memory vector store (baseline)
+│   ├── retrieve.ts              # Baseline retrieval + authz/reranker hooks
+│   ├── generate.ts              # Grounded prompt/generation helpers
+│   ├── resilience.ts            # Retry/resilience utilities
+│   ├── observability.ts         # Privacy-conscious logging/metrics primitives
+│   └── eval.ts                  # Evaluation dataset/metric utilities
+├── dist/                        # Build output (generated by `npm run build`)
+├── tests/                       # Vitest test suite
+├── data/eval/                   # Versioned golden dataset + baseline results
+├── scripts/benchmark-smoke.mjs  # Local in-memory micro-benchmark (smoke)
+├── docs/                        # Architecture, evaluation, security, ops docs
+├── .env.example                 # Environment variable template (no secrets)
 ├── package.json
 ├── tsconfig.json
 └── README.md
 ```
 
-## Getting Started
+## Getting started
 
 ### Prerequisites
 
-- Node.js ≥ 18
-- npm ≥ 9
+- Node.js (verified with v26.13.1)
+- npm (verified with v12.2.2)
 
-### Installation
+### Install and build
 
 ```bash
-# Clone the repository
 git clone https://github.com/gt-ayush/RAG.git
 cd RAG
-
-# Install dependencies
 npm install
-
-# Build the project
 npm run build
 ```
 
 ### Configuration
 
-Create a `.env` file in the project root:
+Copy `.env.example` to `.env` and fill values only when integrating real providers/stores (do not commit secrets):
 
 ```env
 # LLM Provider
-LLM_API_KEY=your-api-key
-LLM_MODEL=gpt-4o
+LLM_API_KEY=
+LLM_MODEL=
 
 # Vector Database
-VECTOR_DB_URL=http://localhost:6333
-VECTOR_DB_API_KEY=your-vector-db-key
+VECTOR_DB_URL=
+VECTOR_DB_API_KEY=
 
 # Embedding Model
-EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_MODEL=
 ```
 
-## Usage
+Config parsing/validation is available via `parsePipelineConfig`, `loadPipelineConfig`, and `loadPipelineConfigFromProcessEnv` (`src/config.ts`) and returns non-sensitive validation issues.
 
-```typescript
-import { RAGPipeline } from "./src/index";
+## Usage (current API, baseline)
 
-const rag = new RAGPipeline({
-  model: "gpt-4o",
-  embeddingModel: "text-embedding-3-small",
-  vectorStore: "chroma",
-});
+The project currently exports composable functions/types (not a `RAGPipeline` class). Example: ingest + chunk local text files, index into the in-memory store with a mock embedder, retrieve, and generate a grounded answer with a mock model.
 
-// Ingest documents
-await rag.ingest("./data", {
-  chunkSize: 512,
-  chunkOverlap: 50,
-});
+```ts
+import {
+  ingestSources,
+  MemoryVectorStore,
+  retrieve,
+  generateGroundedAnswer,
+} from "./dist/index.js"; // or from src in a TS/ESM-aware setup
 
-// Query
-const answer = await rag.query("What is our company policy on remote work?");
-console.log(answer.text);
-console.log(answer.sources); // Cited documents
+// 1) Ingest & chunk baseline text sources (.txt/.md)
+const batch = await ingestSources(["./data/note.txt"], { chunkSize: 512, chunkOverlap: 50 });
+const chunks = batch.chunks;
+
+// 2) Embed + index (provide an EmbeddingProvider implementation; example shape)
+const store = new MemoryVectorStore(3);
+const embeddingProvider = {
+  model: "mock-embed",
+  dimensions: 3,
+  async embedTexts(texts: readonly string[]) {
+    return texts.map((_, i) => ({ chunkId: chunks[i]!.id, model: "mock-embed", dimensions: 3, vector: [1, 0, 0] }));
+  },
+};
+const embeddings = await embeddingProvider.embedTexts(chunks.map((c) => c.content));
+await store.upsert(chunks.map((chunk, i) => ({ chunk, embedding: embeddings[i]! })));
+
+// 3) Retrieve (pass trusted server-side authz context in secured deployments)
+const retrieved = await retrieve(
+  { text: "What is our policy?", topK: 5 },
+  { embeddingProvider, vectorStore: store },
+  // { context: { tenantId: "tenant-a", allowedDocumentIds: [...] } }
+);
+
+// 4) Generate grounded answer (provide a LanguageModel implementation)
+if (retrieved.ok) {
+  const model = { model: "mock-lm", async generate() { return { text: "..." }; } };
+  const answer = await generateGroundedAnswer({ query: "What is our policy?", context: retrieved.value }, { model });
+  console.log(answer);
+}
 ```
 
-## Key Features
-
-- **Multiple chunking strategies** — Fixed, recursive, semantic
-- **Hybrid retrieval** — Dense (embedding) + Sparse (BM25)
-- **Re-ranking** — Cross-encoder re-ranker for top-K precision
-- **Source citation** — Every answer includes document references
-- **TypeScript-first** — Full type safety and IDE support
-
-## Supported Vector Databases
-
-| Database | Status |
-|---|---|
-| Chroma | ✅ Supported |
-| Pinecone | 🔜 Planned |
-| Qdrant | 🎯 Enterprise target (self-hosted on EKS, see architecture package) |
-| FAISS | 🔜 Planned |
-| Weaviate | 🔜 Planned |
-
-## Evaluation
-
-RAG quality is measured using:
-
-- **Faithfulness** — Is the answer grounded in retrieved context?
-- **Answer Relevancy** — Does it answer the actual query?
-- **Context Precision** — Are retrieved chunks relevant?
-- **Context Recall** — Did we retrieve all necessary context?
-
-Run evaluations with:
-
-```bash
-npm run evaluate
-```
+Notes:
+- Baseline parsing supports text formats only; unsupported/empty/unreadable inputs are reported explicitly.
+- Retrieval authz hooks fail closed when provided/evaluated, but callers must supply trusted server-side context in secured deployments.
+- Mock providers above are illustrative; real provider/store adapters are not included.
 
 ## Scripts
 
 | Command | Description |
 |---|---|
-| `npm run build` | Compile TypeScript |
-| `npm run dev` | Run in development mode (watch) |
-| `npm start` | Run compiled output |
-| `npm test` | Run test suite |
-| `npm run evaluate` | Run RAG evaluation |
+| `npm run build` | Compile TypeScript to `dist/` |
+| `npm run typecheck` | Type-check (`tsc --noEmit`) |
+| `npm test` | Run Vitest suite |
+| `npm run evaluate` | Run synthetic smoke evaluation (`tests/eval.smoke.test.ts`) |
 
-## Dependencies
+Local smoke benchmark (after build): `node scripts/benchmark-smoke.mjs` (records in-memory/mock micro-latency only).
 
-- **Runtime**: TypeScript, vector DB client, LLM SDK
-- **Dev**: Vitest, ESLint, Prettier
+## Evaluation and operations (measured, limited)
+
+- **Dataset:** `data/eval/golden-v0.1.0.json` (v0.1.0, synthetic, n=3 smoke cases) — not statistically meaningful or production-representative.
+- **Baseline results (deterministic mocks, in-memory):** Retrieval Recall@3 = 1.0, MRR = 1.0; generation insufficient-context handling observed for negative case. See `docs/05_evaluation_baseline.md`.
+- **Local perf benchmark:** synthetic/mock in-memory micro-benchmark only (see `docs/08_operations_baseline.md`); not evidence of real provider/network/storage latency, throughput, cost, or SLOs.
+- **Security/ops status:** see `docs/06_security_threat_control_review.md`, `docs/07_compliance_gap_assessment.md`, `docs/09_observability_runtime_controls.md`, `docs/10_deployment_cost_readiness.md`.
+
+## Troubleshooting
+
+- **`npm run build`/`typecheck` fails:** run `npm install`, ensure Node/npm meet prerequisites, and confirm `tsconfig.json`/`src/` are unchanged or consistent.
+- **`TS18003` (no inputs) or module resolution issues:** ensure `src/` contains TypeScript files and build uses project config; ESM imports in TS use `.js` specifiers (NodeNext).
+- **Config validation errors:** verify required env vars in `.env` (see `.env.example`); errors are non-sensitive and do not include secret values.
+- **Parse returns `unsupported`/`empty`/`error`:** baseline supports `.txt/.md/.markdown/.text` only; check path, permissions, and content.
+- **Unexpected retrieval results:** confirm embedding model/dimensions match store, `topK` is valid, and trusted authz/tenant/document filters are applied as intended.
+- **Generation returns insufficient context/errors:** ensure retrieved evidence is provided, citations/outputs are grounded, expected model/timeout settings are correct, and provider responses are well-formed (for real adapters).
+- **Benchmark/eval numbers differ:** synthetic/mock baselines are environment-sensitive; do not compare across config/dataset/method changes without documenting deltas.
+
+## Enterprise architecture & system analysis package (target)
+
+Production-grade **design** deliverables (not implemented): Financial Services domain, AWS (us-east-1 primary, eu-west-1 residency target), SOC 2 Type II + GDPR targets, 10M+ docs / P95 < 800 ms / 99.9% targets.
+
+| Part | Deliverable | Location |
+|---|---|---|
+| 1 | `pathlib` docs-scaffolding script (idempotent, atomic writes; archived) | `note.md` § PART 1 (executed; removed from repo) |
+| 2 | Requirement analysis | `docs/01_requirement_analysis.md` |
+| 3 | DFD Level 0/1 (Mermaid.js) + inventory/store registry | `docs/02_data_flow_diagrams.md` |
+| 4 | Spiral SDLC plan (3 loops × 4 quadrants) | `docs/03_spiral_sdlc_plan.md` |
+
+Additional implemented-baseline docs: `docs/04_evaluation_methodology.md`, `docs/05_evaluation_baseline.md`, `docs/06_security_threat_control_review.md`, `docs/07_compliance_gap_assessment.md`, `docs/08_operations_baseline.md`, `docs/09_observability_runtime_controls.md`, `docs/10_deployment_cost_readiness.md`.
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Inspect relevant files and existing patterns before changing behavior.
+2. Make the smallest safe change; add/update tests and docs as needed.
+3. Run relevant checks (`npm run typecheck`, `npm test`, and `npm run evaluate`/build as applicable) and report results accurately.
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
-## Resources
-
-- [What is RAG?](https://www.mongodb.com/developer/products/mongodb/rag-explained/) — MongoDB guide
-- [LangChain RAG Docs](https://js.langchain.com/docs/concepts/rag/) — LangChain concepts
-- [LlamaIndex RAG](https://docs.llamaindex.ai/) — Data framework for LLM apps
-- [Ragas Evaluation](https://docs.ragas.io/) — RAG evaluation framework
+No `LICENSE` file is currently present in this repository. Add one before distributing or relying on specific license terms.
