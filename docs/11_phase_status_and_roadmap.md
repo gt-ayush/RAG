@@ -213,6 +213,23 @@ Added deployment & runbook documentation in `docs/10_deployment_cost_readiness.m
 
 Next within Phase 12: none — Phase 12 complete.
 
+### Phase 13.1 — Audit trail (complete)
+
+Implemented append-only audit trail with integrity protection in `src/audit.ts`:
+
+- Added `AuditEvent`, `AuditEventType`, `AuditLog`, `AuditLogConfig`, `AuditRedactionLevel` types to `src/types.ts`.
+- Created `src/audit.ts` with `AuditLogImpl` class implementing `AuditLog`:
+  - Append-only events with monotonically increasing sequence numbers.
+  - Hash-chain integrity: each event's hash = SHA-256(seq + timestamp + type + JSON(payload) + previousHash).
+  - Payload redaction: sensitive keys (apiKey, authorization, token, secret, password, cookie, prompt, evidence, content, document, chunk) replaced with `[REDACTED]`; user/tenant/document IDs SHA-256 hashed.
+  - Retention: configurable maxEvents and retentionDays with automatic eviction of oldest events.
+  - Integrity verification: `verifyIntegrity()` walks the chain and returns false if any link is broken.
+  - Fail-closed: append failures throw; integrity failures are returned, never silently ignored.
+- Tests: `tests/audit.test.ts` (7 cases covering append/hash chain, integrity verification, hash sensitivity, payload redaction, maxEvents retention, seq range/limit reads).
+- Exports `AuditEvent`, `AuditEventType`, `AuditLog`, `AuditLogConfig`, `AuditRedactionLevel` types and `AuditLogImpl`, `createAuditLog` from `src/index.ts`.
+
+Next within Phase 13: **13.2 Erasure & residency**.
+
 ### Phase 11.3 — Reranking & thresholding (complete)
 
 Implemented the existing `RetrievalReranker` hook with a concrete scorer and explicit refusal threshold:
@@ -230,7 +247,7 @@ Implemented the existing `RetrievalReranker` hook with a concrete scorer and exp
 Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation ✅ done | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
 | 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization ✅ done · 12.3 Durable ingestion lifecycle ✅ done · 12.4 Deployment & runbooks ✅ done | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
-| 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
+| 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail ✅ done · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
 ### Dependencies and ordering
