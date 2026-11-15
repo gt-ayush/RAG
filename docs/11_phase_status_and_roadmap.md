@@ -127,7 +127,22 @@ Implemented sparse/hybrid retrieval with RRF fusion in `src/retrieve.ts`:
 - Server-side document allowlist applied after fusion; optional reranker and topK cap preserved.
 - Tests: `tests/retrieve-hybrid.test.ts` (6 cases covering dense-only baseline, hybrid off with sparseStore present, RRF fusion ranking, sparse failure fallback, document allowlist after fusion, and empty results).
 
-Next within Phase 11: **11.3 Reranking & thresholding** ✅ done (below).
+Next within Phase 11: **11.4 Representative evaluation**.
+
+### Phase 12.1 — API/runtime boundary (complete)
+
+Implemented a minimal HTTP service boundary for the RAG pipeline in `src/server.ts`:
+
+- `createHttpServer(deps)` wraps Node's built-in `http` module (no new dependencies).
+- Endpoints: `GET /health` (200 `{status:'ok'}`), `GET /ready` (200 `{status:'ready'}` when deps wired, else 503), `POST /query` (validate body → retrieve + generate → return answer).
+- Request validation before any pipeline call: query required non-empty string, topK positive integer, tenantId non-empty string; invalid bodies return structured 400 errors.
+- Structured JSON error responses (`{ error: { code, message } }`) with appropriate status codes (400/404/502/503/500); secrets and provider internals never leaked.
+- Integrates existing pipeline: `retrieve()` + `generateGroundedAnswer()`, with optional reranker and authorization.
+- Observability: structured logging via `createStructuredLogger`, metrics via `MetricsRecorder` (counters + timing).
+- Exports `ServerDependencies`, `QueryRequestBody`, `QueryResponseBody`, `ErrorResponseBody`, `createHttpServer` from `src/index.ts`.
+- Tests: `tests/server.test.ts` (9 cases covering health, ready, query success, insufficient context, validation errors, bad JSON, 404, ready-unavailable).
+
+Next within Phase 12: **12.2 Server-side authorization**.
 
 ### Phase 11.3 — Reranking & thresholding (complete)
 
@@ -145,7 +160,7 @@ Implemented the existing `RetrievalReranker` hook with a concrete scorer and exp
 
 Next within Phase 11: **11.4 Representative evaluation**.
 | 11 — Retrieval Quality and Query Processing | Improve evidence quality with measured, reproducible changes | 11.1 Query transformation ✅ done · 11.2 Sparse/hybrid + fusion ✅ done · 11.3 Reranking & thresholding ✅ done · 11.4 Representative evaluation | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
-| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
+| 12 — Service Boundary and Durable Lifecycle | Add a real runtime boundary and durable document lifecycle | 12.1 API/runtime boundary ✅ done · 12.2 Server-side authorization · 12.3 Durable ingestion lifecycle · 12.4 Deployment & runbooks | Authorization enforced before context exposure; lifecycle tested/observable; runbooks match implementation |
 | 13 — Security, Privacy, and Compliance Evidence | Convert design targets into verifiable evidence | 13.1 Audit trail · 13.2 Erasure & residency · 13.3 Red-team suites · 13.4 Evidence pack & gap assessment | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
 | 14 — Realistic Performance, Cost, and Release | Validate under realistic workloads; evidence-backed release | 14.1 Realistic workload baselines · 14.2 Runtime controls under load · 14.3 Cost measurement & capacity · 14.4 Release readiness & handover | Performance/cost claims backed by repeatable measurements on documented configurations |
 
