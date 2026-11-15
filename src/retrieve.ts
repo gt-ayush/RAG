@@ -47,7 +47,9 @@ export type RetrievalReranker = (
 export interface RetrieverDependencies {
   embeddingProvider: EmbeddingProvider;
   vectorStore: VectorStore;
-  /** Optional post-retrieval ranking/filter step (e.g. reranker/fusion adapter). */
+  /** Optional post-retrieval ranking/filter step (e.g. reranker/fusion adapter).
+   * Use `LexicalReranker` from `./reranker.js` for a deterministic lexical
+   * overlap scorer with a configurable minScore refusal threshold. */
   reranker?: RetrievalReranker;
   /** Optional pre-retrieval query transformation hook (rewrite/decompose/expand).
    * When provided, the original query is transformed into variants and each
