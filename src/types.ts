@@ -293,3 +293,45 @@ export class ConfigValidationError extends Error {
 export type Result<T> =
   | { ok: true; value: T }
   | { ok: false; issues: readonly ValidationIssue[] };
+
+/** Record of an ingested source, used for re-index detection and lifecycle tracking. */
+export interface IngestedSourceRecord {
+  /** Stable source/document identifier. */
+  documentId: DocumentId;
+  /** Human-readable source reference (path, URL, title, etc.). */
+  source: string;
+  /** SHA-256 content hash at ingest time; used to detect changes on re-ingest. */
+  contentHash: string;
+  /** ISO timestamp when the source was last ingested. */
+  ingestedAt: string;
+  /** Number of chunks produced for this source. */
+  chunkCount: number;
+  /** Optional version label for the source (e.g. file mtime, document version). */
+  version?: string;
+}
+
+/** Outcome of an ingestion lifecycle operation (re-index, delete, erasure). */
+export interface IngestionLifecycleResult {
+  /** Operation that was performed. */
+  operation: 'reindex' | 'delete' | 'erasure';
+  /** Whether the operation succeeded. */
+  ok: boolean;
+  /** Document id the operation targeted. */
+  documentId: DocumentId;
+  /** Number of chunks affected (upserted or deleted). */
+  affectedChunkCount: number;
+  /** Verification sweep result (for delete/erasure): residual chunk count found after deletion. */
+  residualChunkCount?: number;
+  /** Non-sensitive issue details when ok is false. */
+  issues?: readonly ValidationIssue[];
+}
+
+/** Decision about whether a source needs re-indexing. */
+export interface ReindexDecision {
+  /** Whether re-indexing is needed. */
+  needsReindex: boolean;
+  /** Reason for the decision. */
+  reason: 'new' | 'changed' | 'unchanged' | 'error';
+  /** Existing record if one was found, otherwise undefined. */
+  existingRecord?: IngestedSourceRecord;
+}
