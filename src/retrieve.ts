@@ -72,6 +72,11 @@ function resolveAuthorizedFilters(
 ): Result<{ tenantId?: string; allowedDocumentIds?: readonly string[] }> {
   if (!authz) {
     // No explicit authz context provided; do not invent permissions.
+    // A client-supplied tenant filter without trusted authz context is not
+    // sufficient authorization evidence; fail closed.
+    if (request.tenantId) {
+      return authDenied('trusted tenant authorization is required');
+    }
     // Tenant/document scoping must be enforced by trusted callers in secured deployments.
     return { ok: true, value: {} };
   }
