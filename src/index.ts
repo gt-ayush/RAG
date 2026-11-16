@@ -176,6 +176,11 @@ export type {
   ModelGovernanceResult,
   ModelVersionDecision,
   QueryCost,
+  BurnInConfig,
+  BurnInResult,
+  BurnInQueryResult,
+  SloResult,
+  SloType,
 } from './types.js';
 export type { TenantCostBreakdown } from './cost-tracking.js';
 export {
@@ -191,3 +196,13 @@ export {
   klDivergenceDiagonalGaussian,
   buildSnapshot,
 } from './drift-monitor.js';
+
+export {
+  evaluateSlos,
+  buildBurnInResult,
+  printBurnInReport,
+  allSlosPassed,
+} from './slo.js';
+
+export type { BurnInRunnerOptions } from './burn-in.js';
+export { runBurnIn } from './burn-in.js';
