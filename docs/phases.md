@@ -388,7 +388,14 @@ The following phases are planned future work. None are complete — they are tar
 - **20.2 Residual risks and deferred work**
   - Produce an explicit risk register and deferred-work list with owners; do not claim production readiness without supporting evidence.
 - **20.3 Final evidence pack and go/no-go**
-  - Complete SOC 2 Type II (CC4/CC6/CC7) and GDPR evidence tied to collected artifacts; run the go/no-go gate across all burn-in metrics.
+  - Aggregate all evidence from completed phases (compliance gap assessment, SLO results, security findings, audit results, cost metrics, drift detection, model governance, alert evaluations) into a single evidence pack.
+  - Run the go/no-go gate across all burn-in metrics: availability ≥ 99.9%, P95 latency < 800 ms, error rate ≤ 1%, Recall@10 ≥ 0.85, zero audit-log loss, zero critical/high security findings.
+  - Evaluate drift detection results and model governance decisions as part of the go/no-go criteria.
+  - Evaluate alert evaluations from runtime controls; any firing critical alert blocks go.
+  - Verify SOC 2 Type II (CC4/CC6/CC7) and GDPR evidence completeness.
+  - Produce a final go/no-go decision with confidence score, blocking issues, and warnings.
+  - Document residual risks and deferred work items.
+  - Emit structured evidence pack report for auditor review.
 - **20.4 Handover report**
   - Repeat the Phase 9.3 handover with real evidence, updated docs, changed files, commands run, results, known limitations, and follow-up work.
 
