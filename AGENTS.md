@@ -237,7 +237,7 @@ Do not redo completed phases by default. Re-verify a phase's outputs only when t
 
 ### Phase Selection Rules
 
-All phases 0–14 are complete. Do not repeat completed phases by default; verify their outputs only when the repository changed substantially.
+All phases 0–20 are complete. Do not repeat completed phases by default; verify their outputs only when the repository changed substantially.
 
 If new work is needed beyond the baseline (e.g., wiring real providers, service deployment, production hardening), the next increments would be:
 1. Wire real providers (set `EMBEDDING_BASE_URL`, `VECTOR_DB_URL`, `LLM_BASE_URL` env vars)
