@@ -187,7 +187,10 @@ export type {
   AlertEvaluation,
   DegradationMode,
   DegradationConfig,
+  EvidencePackConfig,
+  GoNoGoDecision,
 } from './types.js';
+export type { EvidencePack } from './evidence-pack.js';
 export type { TenantCostBreakdown } from './cost-tracking.js';
 export {
   CostMetricsTracker,
@@ -212,3 +215,8 @@ export {
 
 export type { BurnInRunnerOptions } from './burn-in.js';
 export { runBurnIn } from './burn-in.js';
+
+export {
+  createEvidencePack,
+  printEvidencePackReport,
+} from './evidence-pack.js';
