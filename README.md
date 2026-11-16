@@ -221,6 +221,9 @@ Credentials are expected in a `rag-env` Secret referenced by `envFrom`.
 - `GET /health` — liveness (always 200 when the process is up)
 - `GET /ready` — readiness (200 when embedding provider, vector store, and LLM are wired)
 - `POST /query` — grounded retrieval + generation (requires valid config + authz when policy is configured)
+- `GET /metrics` — Prometheus text-format metrics (request counts, latency histograms, cost, circuit breaker, cache; no PII or secrets)
+- `POST /erasure` — GDPR erasure cascade across document/vector/audit stores with verification sweep
+- `GET /residency/check` — region/tenant data residency enforcement check
 
 Graceful shutdown: `SIGTERM`/`SIGINT` stops accepting new connections, drains
 in-flight requests up to `SHUTDOWN_TIMEOUT_MS` (default 5000 ms), then closes.
