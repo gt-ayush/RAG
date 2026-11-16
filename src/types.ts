@@ -381,8 +381,9 @@ export interface AuditEvent {
 
 /** Append-only audit log with integrity protection via hash chaining. */
 export interface AuditLog {
-  /** Append an event to the log. Returns the written event. */
-  append(event: Omit<AuditEvent, 'seq' | 'hash'>): Promise<AuditEvent>;
+  /** Append an event to the log. Returns the written event. The log
+   * generates seq, timestamp, previousHash, and hash internally. */
+  append(event: Omit<AuditEvent, 'seq' | 'hash' | 'timestamp' | 'previousHash'>): Promise<AuditEvent>;
   /** Read events within an optional seq range. */
   read(options?: { fromSeq?: number; toSeq?: number; limit?: number }): Promise<readonly AuditEvent[]>;
   /** Verify the integrity of the hash chain. Returns false if any link is broken. */
