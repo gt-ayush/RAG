@@ -195,4 +195,57 @@ describe('IngestionLifecycleTracker', () => {
     await tracker.deleteDocument('doc-1', new MemoryVectorStore(2));
     expect(tracker.getSourceCount()).toBe(1);
   });
+
+  it('traceChunkToSource returns source record for a tracked chunk', async () => {
+    const tracker = new IngestionLifecycleTracker();
+    tracker.recordIngestion('doc-1', '/path/doc-1.txt', 'hash-a', 3, 'v1');
+    tracker.recordChunks([
+      makeRecord('c1', 'doc-1', [1, 0]),
+      makeRecord('c2', 'doc-1', [0, 1]),
+      makeRecord('c3', 'doc-1', [1, 1]),
+    ]);
+
+    const record = tracker.traceChunkToSource('c2');
+    expect(record).toBeDefined();
+    expect(record?.documentId).toBe('doc-1');
+    expect(record?.source).toBe('/path/doc-1.txt');
+    expect(record?.version).toBe('v1');
+    expect(record?.contentHash).toBe('hash-a');
+  });
+
+  it('traceChunkToSource returns undefined for untracked chunk', async () => {
+    const tracker = new IngestionLifecycleTracker();
+    tracker.recordIngestion('doc-1', '/path/doc-1.txt', 'hash-a', 1);
+    tracker.recordChunks([makeRecord('c1', 'doc-1', [1, 0])]);
+
+    const record = tracker.traceChunkToSource('c999');
+    expect(record).toBeUndefined();
+  });
+
+  it('getChunksForSource returns all chunk IDs for a source', async () => {
+    const tracker = new IngestionLifecycleTracker();
+    tracker.recordIngestion('doc-1', '/path/doc-1.txt', 'hash-a', 3);
+    tracker.recordIngestion('doc-2', '/path/doc-2.txt', 'hash-b', 2);
+    tracker.recordChunks([
+      makeRecord('c1', 'doc-1', [1, 0]),
+      makeRecord('c2', 'doc-1', [0, 1]),
+      makeRecord('c3', 'doc-1', [1, 1]),
+      makeRecord('c4', 'doc-2', [0, 0]),
+      makeRecord('c5', 'doc-2', [1, 0]),
+    ]);
+
+    const chunks = tracker.getChunksForSource('doc-1');
+    expect(chunks).toHaveLength(3);
+    expect(chunks).toContain('c1');
+    expect(chunks).toContain('c2');
+    expect(chunks).toContain('c3');
+
+    const chunks2 = tracker.getChunksForSource('doc-2');
+    expect(chunks2).toHaveLength(2);
+    expect(chunks2).toContain('c4');
+    expect(chunks2).toContain('c5');
+
+    const empty = tracker.getChunksForSource('doc-999');
+    expect(empty).toHaveLength(0);
+  });
 });
