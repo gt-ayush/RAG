@@ -43,6 +43,11 @@ export {
   parseSourceFile,
   validateChunkingOptions,
 } from './ingest.js';
+export type {
+  DocumentMetadataFilter,
+  DocumentMetadataStore,
+} from './types.js';
+export { DocumentMemoryStore } from './document-store.js';
 
 export type { EmbedChunksOptions, EmbeddingCompatibility, EmbeddingProvider } from './embeddings.js';
 export {
