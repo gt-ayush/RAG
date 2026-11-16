@@ -1,0 +1,41 @@
+# .dockerignore — exclude secrets, dev tooling, and build output from the image context.
+# Keeps the image small and prevents credentials from being baked into layers.
+
+# Secrets / environment (never copy into image; supplied at runtime via --env-file or K8s secret)
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output (regenerated in the Dockerfile)
+node_modules/
+dist/
+dist/
+
+# Version control
+.git
+.gitignore
+
+# Logs and diagnostics
+logs
+*.log
+npm-debug.log*
+.pnpm-store
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Tests (not needed in the production image)
+tests/
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
