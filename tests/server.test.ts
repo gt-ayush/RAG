@@ -3,6 +3,8 @@ import * as http from 'http';
 import { createHttpServer, setupGracefulShutdown, MAX_REQUEST_BODY_SIZE } from '../src/server.js';
 import type { ServerDependencies } from '../src/server.js';
 import { RateLimiter } from '../src/runtime-controls.js';
+import { createAuditLog } from '../src/audit.js';
+import type { AuditEventType } from '../src/types.js';
 import { makeAuthorizationPolicy } from '../src/authorization.js';
 import type {
   Chunk,
@@ -428,5 +430,125 @@ describe('HTTP server boundary', () => {
 
     const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
     expect(res.status).toBe(200);
+  });
+
+  it('POST /query emits query.received audit event', async () => {
+    const auditLog = createAuditLog();
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+    });
+    servers.push(server);
+
+    await request(port, 'POST', '/query', { query: 'remote work policy', topK: 5 });
+
+    const events = await auditLog.read();
+    const received = events.filter((e) => e.type === 'query.received');
+    expect(received).toHaveLength(1);
+    expect(received[0].payload.query).toBe('remote work policy');
+    expect(received[0].payload.topK).toBe(5);
+  });
+
+  it('POST /query emits query.authorization_denied audit event for missing principal', async () => {
+    const auditLog = createAuditLog();
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+    });
+    servers.push(server);
+
+    await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+
+    const events = await auditLog.read();
+    const denied = events.filter((e) => e.type === 'query.authorization_denied');
+    expect(denied).toHaveLength(1);
+    expect(denied[0].payload.reason).toBe('missing trusted principal');
+  });
+
+  it('POST /query emits query.authorization_denied audit event for denied policy', async () => {
+    const auditLog = createAuditLog();
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      authorizationPrincipal: { tenantId: 'tenant-b' },
+    });
+    servers.push(server);
+
+    await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+
+    const events = await auditLog.read();
+    const denied = events.filter((e) => e.type === 'query.authorization_denied');
+    expect(denied).toHaveLength(1);
+    expect(denied[0].payload.reason).toBe('tenant access denied');
+  });
+
+  it('POST /query emits query.retrieved and generation events on success', async () => {
+    const auditLog = createAuditLog();
+    const chunk = {
+      id: 'c1',
+      documentId: 'd1',
+      content: 'remote work policy for employees',
+      index: 0,
+      metadata: {
+        documentId: 'd1',
+        source: 'd1.txt',
+        chunkId: 'c1',
+        chunkIndex: 0,
+      },
+    } as any;
+    const result = { chunk, score: 0.9, rank: 1, sourceId: 'd1' };
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a', allowedDocumentIds: ['d1'] }),
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: async () => ({ ok: true, value: [result] }),
+      } as any,
+    });
+    servers.push(server);
+
+    await request(port, 'POST', '/query', { query: 'remote work policy', topK: 5 });
+
+    const events = await auditLog.read();
+    const types = events.map((e) => e.type);
+    expect(types).toContain('query.received');
+    expect(types).toContain('query.retrieved');
+    expect(types).toContain('generation.started');
+    expect(types).toContain('generation.completed');
+
+    const retrievedEvent = events.find((e) => e.type === 'query.retrieved')!;
+    expect(retrievedEvent.payload.candidateIds).toEqual(['c1']);
+    expect(retrievedEvent.payload.sourceIds).toEqual(['d1']);
+
+    const completedEvent = events.find((e) => e.type === 'generation.completed')!;
+    expect(completedEvent.payload.citationsCount).toBeGreaterThanOrEqual(0);
+  });
+
+  it('POST /query emits generation.insufficient_context when no results', async () => {
+    const auditLog = createAuditLog();
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: async () => ({ ok: true, value: [] }),
+      } as any,
+    });
+    servers.push(server);
+
+    await request(port, 'POST', '/query', { query: 'nothing matches', topK: 5 });
+
+    const events = await auditLog.read();
+    const types = events.map((e) => e.type);
+    expect(types).toContain('query.received');
+    expect(types).toContain('query.retrieved');
+    expect(types).toContain('generation.insufficient_context');
+    expect(types).not.toContain('generation.started');
+    expect(types).not.toContain('generation.completed');
   });
 });
