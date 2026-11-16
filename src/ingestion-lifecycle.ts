@@ -89,6 +89,32 @@ export class IngestionLifecycleTracker {
   }
 
   /**
+   * Traces a chunk back to its source document record.
+   * Returns the source record if the chunk is tracked, undefined otherwise.
+   * This provides end-to-end traceability from indexed chunks to original sources.
+   */
+  traceChunkToSource(chunkId: string): IngestedSourceRecord | undefined {
+    const documentId = this.chunkToDocument.get(chunkId);
+    if (!documentId) return undefined;
+    return this.sources.get(documentId);
+  }
+
+  /**
+   * Returns all chunk IDs tracked for a given source document.
+   * Useful for verifying which chunks belong to a source before re-indexing
+   * or deletion.
+   */
+  getChunksForSource(documentId: DocumentId): readonly string[] {
+    const chunkIds: string[] = [];
+    for (const [chunkId, docId] of this.chunkToDocument.entries()) {
+      if (docId === documentId) {
+        chunkIds.push(chunkId);
+      }
+    }
+    return chunkIds;
+  }
+
+  /**
    * Decides whether a source needs re-indexing by comparing its content hash
    * against the previously recorded hash.
    */
