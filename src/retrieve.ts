@@ -114,7 +114,7 @@ function applyDocumentAllowList(
  * sources; results are deduplicated by chunk id and re-ranked by fused score.
  * k = 60 is the default.
  */
-function multiSourceRRF(
+export function multiSourceRRF(
   sources: readonly RetrievalResult[][],
   k: number,
 ): RetrievalResult[] {
