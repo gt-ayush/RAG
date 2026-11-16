@@ -216,4 +216,4 @@ Phase status and forward roadmap: `docs/11_phase_status_and_roadmap.md` (complet
 
 ## License
 
-No `LICENSE` file is currently present in this repository. Add one before distributing or relying on specific license terms.
+Licensed under the [BSD 3-Clause License](LICENSE).
