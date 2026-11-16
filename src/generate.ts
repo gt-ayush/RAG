@@ -88,6 +88,7 @@ export function insufficientContextAnswer(
     text: `Insufficient retrieved evidence to answer: "${query}".`,
     citations: citationsFromResults(results),
     insufficientContext: true,
+    ignoredCitationIds: [],
   };
 }
 
@@ -100,7 +101,7 @@ function selectCitations(
   }
   const allowed = new Set(context.map((r) => r.chunk.id));
   const selected = context.filter((r) => citedChunkIds.includes(r.chunk.id) && allowed.has(r.chunk.id));
-  return citationsFromResults(selected.length > 0 ? selected : context);
+  return citationsFromResults(selected);
 }
 
 function isModelGeneration(value: unknown): value is ModelGeneration {
@@ -175,12 +176,16 @@ export async function generateGroundedAnswer(
   }
 
   const citations = selectCitations(request.context, raw.citedChunkIds);
+  const citedChunkIds = raw.citedChunkIds ?? [];
+  const allowedChunkIds = new Set(request.context.map((r) => r.chunk.id));
+  const ignoredCitationIds = citedChunkIds.filter((cid) => !allowedChunkIds.has(cid));
   return {
     ok: true,
     value: {
       text,
       citations,
       insufficientContext: false,
+      ignoredCitationIds,
     },
   };
 }
