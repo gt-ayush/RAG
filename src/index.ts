@@ -110,6 +110,17 @@ export type { LogEvent, LogLevel, Logger } from './observability.js';
 export { createStructuredLogger, MetricsRecorder, sanitizeLogData } from './observability.js';
 
 export type {
+  QueryTransformationOptions,
+  QueryTransformationResult,
+  QueryTransformer,
+} from './types.js';
+export {
+  createQueryTransformer,
+  bypassQueryTransformer,
+  isQueryTransformationResult,
+} from './query-transform.js';
+
+export type {
   QueryRequestBody,
   QueryResponseBody,
   ServerDependencies,
