@@ -166,10 +166,15 @@ export { DefaultErasureService, DefaultResidencyPolicy, createErasureService, cr
 
 export type {
   CostConfig,
+  CostMetrics,
   EmbeddingCost,
   GenerationCost,
   IngestionCost,
   QueryCost,
-  CostMetrics,
 } from './types.js';
-export { CostMetricsTracker, DefaultCostConfig, createCostTracker } from './cost-tracking.js';
+export type { TenantCostBreakdown } from './cost-tracking.js';
+export {
+  CostMetricsTracker,
+  DefaultCostConfig,
+  createCostTracker,
+} from './cost-tracking.js';
