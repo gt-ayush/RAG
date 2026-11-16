@@ -225,3 +225,7 @@ export {
   createEvidencePack,
   printEvidencePackReport,
 } from './evidence-pack.js';
+
+export {
+  PrometheusExporter,
+} from './prometheus.js';
