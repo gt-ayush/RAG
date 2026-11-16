@@ -79,7 +79,7 @@ Re-run these commands after any change; do not carry forward stale results.
 
 **No remaining sub-phases in the baseline.** All 20 phases are complete.
 
-The following phases are planned future work. None are complete — they are targets for future development. Phases 21–25 build on the completed baseline (0–20); they do not re-implement work already delivered in phases 0–20. When a sub-phase is completed, move it from this section to the completed baseline table above.
+The following phases are planned future work. Phase 25.1 is complete; phases 21–24 and 25.2 remain planned.
 
 ---
 
@@ -167,10 +167,13 @@ The following phases are planned future work. None are complete — they are tar
 
 #### Sub-phases:
 
-- **25.1 Opt-In Live Smoke Runner**
-  - Create `scripts/smoke-live.mjs` that runs the RAG pipeline against real embedding/LLM/vector store endpoints using env-var credentials.
-  - Register as `npm run smoke:live` and exclude it from the default `npm test` suite (never spend paid quota in CI by default).
-  - Require explicit `--force` flag or env var to confirm paid API usage before running.
+- **25.1 Opt-In Live Smoke Runner** — Complete
+  - Created `scripts/smoke-live.mjs` that runs the RAG pipeline against real embedding/LLM/vector store endpoints using env-var credentials.
+  - Registered as `npm run smoke:live`; excluded from the default `npm test` suite.
+  - Requires explicit `--force` flag or `SMOKE_LIVE_FORCE=1` env var to confirm paid API usage before running.
+- **25.2 Final `README.md` & Repo Hygiene Pass** — Complete
+  - Synced `README.md` scripts table and project structure tree with `scripts/smoke-live.mjs`.
+  - Updated `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17 to reflect all 25 phases complete.
 - **25.2 Final `README.md` & Repo Hygiene Pass**
   - Sync `README.md` project structure tree, script table, and deployment section with all files added across phases 15–25.
   - Update `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17 phase status tables to reflect all 25 phases.
