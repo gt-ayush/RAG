@@ -342,6 +342,7 @@ export type AuditEventType =
   | 'query.retrieved'
   | 'query.retrieval_error'
   | 'query.authorization_denied'
+  | 'query.residency_denied'
   | 'generation.started'
   | 'generation.completed'
   | 'generation.error'
@@ -352,7 +353,8 @@ export type AuditEventType =
   | 'deletion.requested'
   | 'deletion.completed'
   | 'erasure.requested'
-  | 'erasure.completed';
+  | 'erasure.completed'
+  | 'residency.checked';
 
 /** Redaction level applied to an audit event field. */
 export type AuditRedactionLevel = 'none' | 'hash' | 'redact';
