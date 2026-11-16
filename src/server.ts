@@ -4,6 +4,8 @@ import type {
   AuthorizationDecision,
   AuthorizationPolicy,
   AuthorizationPrincipal,
+  AuditEventType,
+  AuditLog,
   PipelineConfig,
   Result,
   TenantAuthorizationPolicyConfig,
@@ -47,6 +49,8 @@ export interface ServerDependencies {
   tenantQuotas?: Map<string, TenantQuotaConfig>;
   /** Optional roles required to access the query endpoint (RBAC). */
   requiredRoles?: readonly string[];
+  /** Optional append-only audit log for query/retrieval/generation events. */
+  auditLog?: AuditLog;
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -325,6 +329,30 @@ function checkRequiredRoles(
   return { allowed: true };
 }
 
+/**
+ * Safely appends an audit event. Failures are logged but never fail the
+ * request — audit is best-effort observability, not a hard gate.
+ */
+async function emitAudit(
+  deps: ServerDependencies,
+  type: AuditEventType,
+  payload: Record<string, unknown>,
+  correlationId?: string,
+): Promise<void> {
+  if (!deps.auditLog) return;
+  try {
+    const principalTenantId = deps.authorizationPrincipal?.tenantId;
+    await deps.auditLog.append({
+      type,
+      ...(principalTenantId ? { tenantId: principalTenantId } : {}),
+      ...(correlationId ? { correlationId } : {}),
+      payload,
+    });
+  } catch (error) {
+    deps.logger.error('audit_append_failed', { error: String(error), type });
+  }
+}
+
 function errorResponse(code: string, message: string): ErrorResponseBody {
   return { error: { code, message } };
 }
@@ -406,6 +434,16 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
 
         const { query } = validated.value;
 
+        // Correlation ID links query → retrieval → generation audit events.
+        const correlationId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+        // Audit: request received and validated.
+        await emitAudit(deps, 'query.received', {
+          query,
+          topK: validated.value.topK ?? 5,
+          tenantId: validated.value.tenantId,
+        }, correlationId);
+
         // Gateway-level tenant throttling: rate limit, quota, and RBAC are
         // enforced before any pipeline call. Fail closed on limit exceeded.
         const tenantId = resolveTenantId(req, validated.value, deps);
@@ -440,6 +478,10 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
             makeAuthorizationPolicy(deps.authorizationTenantConfig!);
           const principal = deps.authorizationPrincipal;
           if (!principal) {
+            await emitAudit(deps, 'query.authorization_denied', {
+              reason: 'missing trusted principal',
+              tenantId: tenantId,
+            }, correlationId);
             sendError('unauthorized', 'missing trusted principal', 401);
             return;
           }
@@ -449,6 +491,10 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
             ...(validated.value.tenantId ? { tenantId: validated.value.tenantId } : {}),
           });
           if (!decision.allowed) {
+            await emitAudit(deps, 'query.authorization_denied', {
+              reason: decision.reason,
+              tenantId: decision.tenantId,
+            }, correlationId);
             sendError('forbidden', decision.reason, 403);
             return;
           }
@@ -477,18 +523,37 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
         );
 
         if (!retrieved.ok) {
+          await emitAudit(deps, 'query.retrieval_error', {
+            issues: retrieved.issues.map((i) => ({ path: i.path, message: i.message })),
+          }, correlationId);
           sendError('retrieval_error', retrieved.issues.map((i) => `${i.path}: ${i.message}`).join('; '), 502);
           return;
         }
 
+        // Audit: retrieval completed with candidate IDs and scores.
+        await emitAudit(deps, 'query.retrieved', {
+          candidateCount: retrieved.value.length,
+          candidateIds: retrieved.value.map((r) => r.chunk.id),
+          sourceIds: retrieved.value.map((r) => r.sourceId),
+          filters: { tenantId: retrieveRequest.tenantId },
+        }, correlationId);
+
         let answer;
         if (retrieved.value.length === 0) {
+          await emitAudit(deps, 'generation.insufficient_context', {
+            query,
+          }, correlationId);
           answer = {
             text: `Insufficient retrieved evidence to answer: "${query}".`,
             citations: [],
             insufficientContext: true,
           };
         } else {
+          // Audit: generation started.
+          await emitAudit(deps, 'generation.started', {
+            contextCount: retrieved.value.length,
+          }, correlationId);
+
           const generated = await generateGroundedAnswer(
             { query, context: retrieved.value },
             {
@@ -499,9 +564,17 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
           );
 
           if (!generated.ok) {
+            await emitAudit(deps, 'generation.error', {
+              issues: generated.issues.map((i) => ({ path: i.path, message: i.message })),
+            }, correlationId);
             sendError('generation_error', generated.issues.map((i) => `${i.path}: ${i.message}`).join('; '), 502);
             return;
           }
+
+          await emitAudit(deps, 'generation.completed', {
+            citationsCount: generated.value.citations.length,
+            insufficientContext: generated.value.insufficientContext,
+          }, correlationId);
 
           answer = {
             text: generated.value.text,
