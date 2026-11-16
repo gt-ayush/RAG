@@ -3,6 +3,7 @@
  * Keep these contracts stable and validate untrusted data at system boundaries
  * before constructing values of these types.
  */
+import type { TenantCostBreakdown } from './cost-tracking.js';
 
 export type DocumentId = string;
 export type ChunkId = string;
@@ -875,4 +876,80 @@ export interface BurnInResult {
   allSlosPassed: boolean;
   /** Per-second query counts (for throughput analysis). */
   queriesPerSecond: readonly number[];
+}
+
+/** Configuration for the evidence pack go/no-go evaluation. */
+export interface EvidencePackConfig {
+  /** Burn-in result (required for go/no-go). */
+  burnInResult: BurnInResult;
+  /** Cost metrics snapshot. */
+  costMetrics: CostMetrics;
+  /** Tenant cost breakdowns. */
+  tenantCostBreakdown: readonly TenantCostBreakdown[];
+  /** Drift detection result. */
+  driftResult: EmbeddingDriftResult;
+  /** Model governance result. */
+  governanceResult: ModelGovernanceResult;
+  /** Alert evaluations from runtime controls. */
+  alertEvaluations: readonly AlertEvaluation[];
+  /** Number of critical/high security findings. */
+  securityFindings: number;
+  /** Whether SOC 2 Type II evidence is complete. */
+  soc2EvidenceComplete: boolean;
+  /** Whether GDPR evidence is complete. */
+  gdprEvidenceComplete: boolean;
+  /** List of identified residual risks. */
+  residualRisks: readonly string[];
+  /** List of deferred work items. */
+  deferredWork: readonly string[];
+}
+
+/** Result of the go/no-go evaluation. */
+export interface GoNoGoDecision {
+  /** Final go/no-go decision. */
+  decision: 'go' | 'no-go';
+  /** Overall confidence level (0-1). */
+  confidence: number;
+  /** List of blocking issues (must be resolved before go). */
+  blockingIssues: readonly string[];
+  /** List of warnings (should be addressed but don't block go). */
+  warnings: readonly string[];
+  /** Summary of evidence supporting the decision. */
+  summary: string;
+  /** Timestamp when the decision was made. */
+  decidedAt: string;
+}
+
+/** Complete evidence pack aggregating all pipeline evidence. */
+export interface EvidencePack {
+  /** Configuration used for the evaluation. */
+  config: EvidencePackConfig;
+  /** Go/no-go decision. */
+  decision: GoNoGoDecision;
+  /** SLO evaluation results from burn-in. */
+  sloResults: readonly SloResult[];
+  /** All SLOs passed. */
+  allSlosPassed: boolean;
+  /** Drift detection result. */
+  driftResult: EmbeddingDriftResult;
+  /** Model governance result. */
+  governanceResult: ModelGovernanceResult;
+  /** Alert evaluations. */
+  alertEvaluations: readonly AlertEvaluation[];
+  /** Cost metrics snapshot. */
+  costMetrics: CostMetrics;
+  /** Tenant cost breakdowns. */
+  tenantCostBreakdown: readonly TenantCostBreakdown[];
+  /** Security findings count. */
+  securityFindings: number;
+  /** SOC 2 evidence complete. */
+  soc2EvidenceComplete: boolean;
+  /** GDPR evidence complete. */
+  gdprEvidenceComplete: boolean;
+  /** Residual risks identified. */
+  residualRisks: readonly string[];
+  /** Deferred work items. */
+  deferredWork: readonly string[];
+  /** Timestamp when the evidence pack was assembled. */
+  assembledAt: string;
 }
