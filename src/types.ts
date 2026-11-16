@@ -347,6 +347,7 @@ export type AuditEventType =
   | 'generation.completed'
   | 'generation.error'
   | 'generation.insufficient_context'
+  | 'generation.degraded'
   | 'ingestion.started'
   | 'ingestion.completed'
   | 'ingestion.error'
@@ -579,6 +580,61 @@ export interface RuntimeControlsMetrics {
   concurrency: ConcurrencyLimiterMetrics;
   circuitBreaker: CircuitBreakerMetrics;
   cache: CacheMetrics;
+}
+
+/** Comparison operator for alert threshold evaluation. */
+export type AlertOperator = 'gt' | 'lt' | 'gte' | 'lte' | 'eq';
+
+/** Configuration for a single alert threshold on a runtime metric. */
+export interface AlertThreshold {
+  /** Metric path to evaluate (e.g. 'circuitBreaker.state', 'concurrency.rejected'). */
+  metricPath: string;
+  /** Operator to compare metric value against threshold. */
+  operator: AlertOperator;
+  /** Threshold value. */
+  threshold: number;
+  /** How many consecutive evaluations must breach before firing. */
+  consecutiveBreaches: number;
+  /** Severity level of the alert. */
+  severity: 'info' | 'warning' | 'critical';
+}
+
+/** Current state of an alert. */
+export type AlertState = 'resolved' | 'pending' | 'firing';
+
+/** Result of evaluating a single alert threshold. */
+export interface AlertEvaluation {
+  /** Metric path that was evaluated. */
+  metricPath: string;
+  /** Current metric value. */
+  value: number;
+  /** Threshold that was compared against. */
+  threshold: number;
+  /** Whether the threshold was breached. */
+  breached: boolean;
+  /** Current alert state. */
+  state: AlertState;
+  /** Consecutive breach count. */
+  consecutiveBreaches: number;
+  /** Severity of the alert. */
+  severity: AlertThreshold['severity'];
+  /** Human-readable description. */
+  description: string;
+}
+
+/** Degradation mode for the service under overload. */
+export type DegradationMode = 'none' | 'retrieval_only' | 'reject_all';
+
+/** Configuration for overload degradation behavior. */
+export interface DegradationConfig {
+  /** Mode to enter when overloaded. */
+  mode: DegradationMode;
+  /** Circuit breaker state that triggers degradation. */
+  triggerCircuitOpen: boolean;
+  /** Concurrency rejection rate threshold that triggers degradation. */
+  triggerRejectionRate: number;
+  /** Whether to return cached results when degraded. */
+  allowCachedResponses: boolean;
 }
 
 /** Cost tracking for a single embedding operation. */
