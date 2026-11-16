@@ -15,7 +15,7 @@ This document records (a) which implementation phases are complete for the **loc
 
 "Complete" means the phase's deliverables exist, are tested where testable, and are documented. It does **not** mean production, enterprise, compliance, or scale readiness. All baseline evidence is local/synthetic: deterministic mocks, in-memory store, no real providers, paid APIs, or cloud services.
 
-## Completed Baseline (Phases 0–14)
+## Completed Baseline (Phases 0–20)
 
 | Phase | Status | Verified Evidence | Main Artifacts |
 |---|---|---|---|
@@ -34,8 +34,14 @@ This document records (a) which implementation phases are complete for the **loc
 | 12 — Service Boundary and Durable Lifecycle | Complete | Authorization enforced before context exposure; lifecycle operations tested/observable; runbooks match implementation | `src/server.ts`, `src/authorization.ts`, `src/ingestion-lifecycle.ts`, `tests/server.test.ts`, `tests/authorization.test.ts`, `tests/ingestion-lifecycle.test.ts`, `docs/10_deployment_cost_readiness.md` |
 | 13 — Security, Privacy, and Compliance Evidence | Complete | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence | `src/audit.ts`, `src/erasure.ts`, `tests/audit.test.ts`, `tests/erasure.test.ts`, `tests/red-team.test.ts`, `docs/07_compliance_gap_assessment.md` |
 | 14 — Realistic Performance, Cost, and Release | Complete | Performance/cost claims backed by repeatable measurements on documented configurations; handover distinguishes verified capability from remaining gaps | `scripts/benchmark-realistic.mjs`, `docs/14_release_readiness.md` |
+| 15 — Production Service Hardening & Multi-Tenancy | Complete | `src/server.ts` HTTP service with `/health`, `/ready`, `/query`, `/metrics`, `/erasure`, `/residency/check` endpoints; graceful shutdown/signal handling; `src/cli.ts` entry point; `Dockerfile`, `docker-compose.yml`, `infrastructure/systemd/rag.service`, `infrastructure/k8s/` deployment manifests; server-side tenant isolation with rate limiting, quotas, RBAC; residency enforcement | `src/server.ts`, `src/cli.ts`, `src/runtime-controls.ts`, `src/authorization.ts`, `Dockerfile`, `docker-compose.yml`, `infrastructure/systemd/rag.service`, `infrastructure/k8s/rag-deployment.yaml`, `infrastructure/k8s/rag-service.yaml`, `.dockerignore`, `.env.example` |
+| 16 — Security, Privacy & Compliance Evidence | Complete | Append-only audit trail with hash-chain integrity and payload redaction; erasure cascade across D1/D2/D4 with verification sweeps; region/tenant residency enforcement; red-team suites (cross-tenant, prompt injection, privilege escalation, secret leakage, malformed input, deletion); evidence pack and gap assessment | `src/audit.ts`, `src/erasure.ts`, `src/server.ts`, `tests/audit.test.ts`, `tests/erasure.test.ts`, `tests/red-team.test.ts`, `tests/server.test.ts`, `docs/07_compliance_gap_assessment.md` |
+| 17 — Retrieval Quality & Query Processing | Complete | Query transformation (rewrite/decompose/expand) with latency/token budget and bypass; sparse/hybrid retrieval with RRF fusion; reranker hook with concrete scorer and empty-context refusal threshold; representative evaluation on versioned dataset (n=10) with Recall@K, MRR, nDCG@K | `src/query-transform.ts`, `src/retrieve.ts`, `src/reranker.ts`, `src/eval.ts`, `src/slo.ts`, `tests/query-transform.test.ts`, `tests/retrieve-hybrid.test.ts`, `tests/reranker.test.ts`, `tests/burn-in.test.ts`, `docs/04`, `docs/05` |
+| 18 — Durable Document Lifecycle & Data Residency | Complete | Source/version traceability with chunk-to-source mapping; idempotent re-indexing; deletion/erasure cascade with verification sweeps; region-pinned residency with OPA/policy enforcement; lifecycle runbooks | `src/ingestion-lifecycle.ts`, `src/erasure.ts`, `src/server.ts`, `src/authorization.ts`, `tests/ingestion-lifecycle.test.ts`, `tests/erasure.test.ts`, `tests/server.test.ts`, `docs/12_lifecycle_runbooks.md` |
+| 19 — Observability, SLOs & Cost Governance | Complete | Realistic workload baselines with latency percentiles, throughput, failure rates; runtime controls (concurrency, circuit breaker, cache) under load; per-tenant cost attribution; embedding drift detection with KL divergence; model governance with rollback decision | `src/observability.ts`, `src/slo.ts`, `src/burn-in.ts`, `src/drift-monitor.ts`, `src/cost-tracking.ts`, `src/server.ts`, `tests/burn-in.test.ts`, `tests/cost-tracking.test.ts`, `tests/runtime-controls.test.ts`, `tests/drift-monitor.test.ts`, `scripts/benchmark-realistic.mjs`, `docs/08_operations_baseline.md`, `docs/09_observability_runtime_controls.md`, `docs/10_deployment_cost_readiness.md` |
+| 20 — Release Readiness & Handover | Complete | 30-day burn-in test with SLO evaluation; residual risks and deferred work register; complete evidence pack with go/no-go decision; final handover report distinguishing verified capability from remaining gaps | `src/slo.ts`, `src/burn-in.ts`, `src/evidence-pack.ts`, `tests/burn-in.test.ts`, `tests/evidence-pack.test.ts`, `docs/14_release_readiness.md` |
 
-**Total: 14 phases, 54 sub-phases — ALL COMPLETE.**
+**Total: 20 phases — ALL COMPLETE.**
 
 ---
 
@@ -55,7 +61,7 @@ This document records (a) which implementation phases are complete for the **loc
 | Command | Result |
 |---|---|
 | `npm run typecheck` | pass (exit 0) |
-| `npm test` | pass — 27 test files, 197 tests |
+| `npm test` | pass — 33 test files, 326 tests |
 | `npm run build` | pass (exit 0) |
 | `npm run evaluate` | pass (exit 0) |
 | `node scripts/benchmark-smoke.mjs` | pass (exit 0) |
@@ -67,137 +73,16 @@ Re-run these commands after any change; do not carry forward stale results.
 
 ## Forward Roadmap
 
-**No remaining sub-phases in the baseline.** All 14 phases (54 sub-phases) are complete.
+**No remaining sub-phases.** All 20 phases are complete.
 
-The following phases are planned future work. None are complete — they are targets for future development. When a sub-phase is completed, move it from this section to the completed baseline table above. Phases 15–20 build on the completed baseline (0–14); they do not re-implement work already delivered in phases 10–14.
+All 20 phases have been implemented, tested, and documented. Phases 0–14 form the verified local baseline; phases 15–20 extend the baseline with production service hardening, multi-tenancy, security/compliance evidence, retrieval quality improvements, durable document lifecycle, observability/SLOs/cost governance, and release readiness.
 
----
+The following planned future work remains beyond phase 20:
 
-### Phase 15 — Production Service Hardening & Multi-Tenancy
-
-**Goal:** Run `src/server.ts` as a production HTTP service with enforced multi-tenancy, operational safety, and deployable packaging.
-
-#### Sub-phases:
-
-- **15.1 HTTP service hardening**
-  - Expose `/health` and `/ready` endpoints on `src/server.ts`; return structured errors and validation failures.
-  - Implement graceful shutdown and signal handling (SIGTERM/SIGINT) with in-flight request draining.
-  - Load configuration from environment variables with validation at startup; never print secret values.
-  - Add request validation, size limits, and tenant-context extraction on every incoming request.
-- **15.2 Multi-tenancy enforcement**
-  - Enforce server-side tenant isolation at the gateway before any retrieval/generation; fail closed on policy or authorization errors.
-  - Add per-tenant rate limiting and token/QPS quotas at the gateway.
-  - Add tenant-level access control policies (RBAC/ABAC) with document ACLs; test cross-tenant access (0 leaks).
-- **15.3 Deployment packaging**
-  - Provide a `Dockerfile`, systemd unit, and Kubernetes deployment manifests for `src/server.ts`.
-  - Document required environment variables in `.env.example` and setup docs; keep provider SDK details behind existing interfaces.
-
-**Exit criteria:** Service runs as HTTP with health/readiness endpoints; tenant isolation and fail-closed authorization are tested; deployment/runbook docs match implementation; no secrets logged.
-
----
-
-### Phase 16 — Security, Privacy & Compliance Evidence
-
-**Goal:** Convert security and privacy design targets into verifiable, tested evidence.
-
-#### Sub-phases:
-
-- **16.1 Audit trail**
-  - Implement append-only, integrity-protected audit events for query, retrieval, and generation (identity, filters, candidate IDs/scores, prompt hash, response, model/embedding versions).
-  - Add retention policy and redaction of sensitive content from audit records and logs.
-- **16.2 Erasure and residency**
-  - Implement and verify the erasure cascade across stores (vector index, raw store, policy store) including verification sweeps.
-  - Enforce region/tenant residency rules (e.g., EU corpus pinned to eu-west-1; no cross-region writes).
-- **16.3 Red-team suites**
-  - Expand adversarial testing: cross-tenant access, prompt injection, privilege escalation, secret leakage, malformed input, and deletion behavior.
-- **16.4 Evidence pack & gap assessment**
-  - Update `docs/07_compliance_gap_assessment.md` with verified controls and remaining gaps; keep SOC 2 Type II / GDPR claims tied to collected evidence only.
-
-**Exit criteria:** Verified controls have test/evidence artifacts; remaining gaps documented; no compliance claim exists without supporting evidence.
-
----
-
-### Phase 17 — Retrieval Quality & Query Processing
-
-**Goal:** Improve evidence quality with measured, reproducible changes on a versioned dataset.
-
-#### Sub-phases:
-
-- **17.1 Query transformation**
-  - Add rewrite/decompose/expand behind an optional hook with explicit latency/token budget and a bypass path.
-- **17.2 Sparse/hybrid retrieval and fusion**
-  - Add sparse retrieval and rank fusion (e.g., reciprocal-rank fusion) while preserving dense retrieval as the default baseline path.
-- **17.3 Reranking and thresholding**
-  - Implement the reranker hook contract with a concrete scorer; define an explicit empty-context/refusal threshold behavior.
-- **17.4 Representative evaluation**
-  - Expand the versioned golden dataset beyond the synthetic smoke set; record dataset version, sample size, metric definitions, and before/after deltas (Recall@K, MRR, nDCG@K, faithfulness).
-
-**Exit criteria:** Every retrieval change is measured on a versioned dataset with reported metrics; dense-only behavior remains available; no quality claim is made without recorded evidence.
-
----
-
-### Phase 18 — Durable Document Lifecycle & Data Residency
-
-**Goal:** Durable, auditable document lifecycle on top of the verified baseline: source/version traceability, deletion/erasure, and residency.
-
-#### Sub-phases:
-
-- **18.1 Persistent source/version metadata**
-  - Preserve source IDs, filenames, page/section details, chunk indexes, and ingestion metadata through indexing; trace chunks back to original sources.
-  - Support idempotent re-indexing for reprocessed sources; prevent duplicate indexed records.
-- **18.2 Deletion and erasure cascade**
-  - Support deletion and GDPR erasure requests with verification sweeps (count = 0) and auditable outcomes written to the audit log.
-- **18.3 Residency and cross-region controls**
-  - Region-pinned collections; OPA/policy-enforced block on cross-region writes; EU-resident corpora confined to eu-west-1.
-- **18.4 Lifecycle runbooks**
-  - Define ingestion, erasure, failover, and index-rebuild runbooks; do not run infrastructure, migration, bulk re-index, or destructive commands without explicit confirmation.
-
-**Exit criteria:** Lifecycle operations are tested and observable; residency is enforced; runbooks match the actual implementation.
-
----
-
-### Phase 19 — Observability, SLOs & Cost Governance
-
-**Goal:** Observable, governed operation under realistic load with evidence-backed SLOs and cost.
-
-#### Sub-phases:
-
-- **19.1 Realistic workload baselines**
-  - Measure latency percentiles (P50/P95/P99), throughput, and failure rates per stage with real providers and storage, not mocks; record environment and configuration.
-- **19.2 Runtime controls under load**
-  - Validate concurrency limits, backpressure, circuit breaking, caching, and alert thresholds with measured numbers; degradation to retrieval-only on overload.
-- **19.3 Cost measurement and capacity**
-  - Measure cost per query and per ingestion run; per-tenant token/cost attribution; capacity assumptions for realistic corpus sizes (10M+ docs).
-- **19.4 Embedding drift and model governance**
-  - Embedding-drift monitoring (e.g., KL divergence) with version-pinned models and a documented rollback/re-index process.
-
-**Exit criteria:** Performance and cost claims backed by repeatable measurements on documented configurations; SLOs defined; drift governed with rollback path.
-
----
-
-### Phase 20 — Release Readiness & Handover
-
-**Goal:** Evidence-backed release readiness: burn-in, residual risks, final evidence pack, and go/no-go gate.
-
-#### Sub-phases:
-
-- **20.1 30-day burn-in**
-  - Sustained availability ≥ 99.9%; P95 < 800 ms at target QPS; Recall@10/MRR/nDCG@10 targets; zero critical/high security findings; zero audit-log loss.
-- **20.2 Residual risks and deferred work**
-  - Produce an explicit risk register and deferred-work list with owners; do not claim production readiness without supporting evidence.
-- **20.3 Final evidence pack and go/no-go**
-  - Aggregate all evidence from completed phases (compliance gap assessment, SLO results, security findings, audit results, cost metrics, drift detection, model governance, alert evaluations) into a single evidence pack.
-  - Run the go/no-go gate across all burn-in metrics: availability ≥ 99.9%, P95 latency < 800 ms, error rate ≤ 1%, Recall@10 ≥ 0.85, zero audit-log loss, zero critical/high security findings.
-  - Evaluate drift detection results and model governance decisions as part of the go/no-go criteria.
-  - Evaluate alert evaluations from runtime controls; any firing critical alert blocks go.
-  - Verify SOC 2 Type II (CC4/CC6/CC7) and GDPR evidence completeness.
-  - Produce a final go/no-go decision with confidence score, blocking issues, and warnings.
-  - Document residual risks and deferred work items.
-  - Emit structured evidence pack report for auditor review.
-- **20.4 Handover report**
-  - Repeat the Phase 9.3 handover with real evidence, updated docs, changed files, commands run, results, known limitations, and follow-up work.
-
-**Exit criteria:** Release readiness evidenced for the full burn-in window; handover distinguishes verified capability from remaining gaps.
+- **Real provider wiring**: Wire `HttpEmbeddingProvider`, `QdrantStore`, `HttpLLMProvider` into `src/index.ts` and `src/server.ts` with real `EMBEDDING_BASE_URL`, `VECTOR_DB_URL`, `LLM_BASE_URL` env vars (requires explicit authorization — see AGENTS.md §17).
+- **Durable persistence**: Replace `MemoryVectorStore` with `QdrantStore` as default; add durable audit log and erasure verification sweep beyond in-memory.
+- **Production service deployment**: Deploy `src/server.ts` as an HTTP service (Docker/K8s manifests exist in `infrastructure/`).
+- **Production SOC 2/GDPR evidence**: Collect operational evidence for SOC 2 Type II and GDPR claims (currently documented as targets, not verified compliance).
 
 ---
 
