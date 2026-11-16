@@ -19,8 +19,14 @@ export interface ParsedDocument {
   issues: readonly ValidationIssue[];
 }
 
-/** Baseline text formats supported without additional parsing dependencies. */
-const SUPPORTED_TEXT_EXTENSIONS = new Set(['.txt', '.md', '.markdown', '.text']);
+/** Supported file extensions for parsing. */
+const SUPPORTED_TEXT_EXTENSIONS = new Set([
+  '.txt', '.md', '.markdown', '.text',  // plain text
+  '.html', '.htm',                      // HTML
+  '.json',                              // JSON
+  '.csv',                               // CSV
+  '.pdf',                               // PDF
+]);
 
 function toDocumentId(sourcePath: string): string {
   return path.resolve(sourcePath);
@@ -41,6 +47,103 @@ function buildMetadata(sourcePath: string, content?: string): DocumentMetadata {
 
 function normalizeText(content: string): string {
   return content.replace(/^\uFEFF/, '');
+}
+
+/**
+ * Parse HTML content into plain text by stripping tags and decoding entities.
+ */
+function parseHtml(content: string): string {
+  let text = content
+    // Remove script and style elements
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    // Remove HTML tags
+    .replace(/<[^>]*>/g, ' ')
+    // Decode common HTML entities
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_: string, code: string) => String.fromCharCode(parseInt(code, 10)))
+    .replace(/&#x([0-9a-fA-F]+);/g, (_: string, code: string) => String.fromCharCode(parseInt(code, 16)))
+    // Collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text;
+}
+
+/**
+ * Parse JSON content by extracting all string values recursively.
+ */
+function parseJson(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    return extractStringsFromJson(parsed);
+  } catch {
+    throw new Error('invalid JSON');
+  }
+}
+
+function extractStringsFromJson(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map((v) => extractStringsFromJson(v)).filter(Boolean).join(' ');
+  if (value && typeof value === 'object') {
+    return Object.values(value).map((v) => extractStringsFromJson(v)).filter(Boolean).join(' ');
+  }
+  return '';
+}
+
+/**
+ * Parse CSV content into plain text by joining all field values.
+ */
+function parseCsv(content: string): string {
+  const lines = content.split('\n');
+  const rows = lines.map((line) => {
+    const fields: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        fields.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    fields.push(current);
+    return fields.join(' ');
+  });
+  return rows.filter((r) => r.trim().length > 0).join(' ');
+}
+
+/**
+ * Parse PDF content by extracting text from uncompressed PDF content streams.
+ * Note: This handles basic PDF text extraction; complex PDFs with compressed
+ * streams or complex encodings may not extract text correctly.
+ */
+function parsePdf(content: Buffer): string {
+  const text = content.toString('latin1');
+  const textParts: string[] = [];
+  // Find text between stream and endstream markers
+  const streamRegex = /stream\r?\n([\s\S]*?)endstream/g;
+  let match: RegExpExecArray | null;
+  while ((match = streamRegex.exec(text)) !== null) {
+    const streamContent = match[1] ?? '';
+    // Extract text strings from PDF content stream (parenthesized strings)
+    const textMatches = streamContent.match(/\(([^)]*)\)/g) || [];
+    for (const match of textMatches) {
+      const text = match.slice(1, -1);
+      if (text.length > 0) {
+        textParts.push(text);
+      }
+    }
+  }
+  return textParts.join(' ');
 }
 
 /**
@@ -84,8 +187,49 @@ export async function parseSourceFile(sourcePath: string): Promise<ParsedDocumen
   }
 
   try {
+    // PDF requires binary reading; other formats are read as text
+    if (ext === '.pdf') {
+      const raw = await readFile(resolved);
+      const content = parsePdf(raw);
+      if (content.trim().length === 0) {
+        return {
+          status: 'empty',
+          source: resolved,
+          issues: [{ path: resolved, message: 'document is empty or contains only whitespace' }],
+        };
+      }
+      const metadata = buildMetadata(resolved, content);
+      const document: Document = {
+        id: metadata.documentId,
+        content,
+        metadata,
+      };
+      return {
+        status: 'ok',
+        source: resolved,
+        document,
+        issues: [],
+      };
+    }
+
+    // Text-based formats
     const raw = await readFile(resolved, 'utf8');
-    const content = normalizeText(raw);
+    let content: string;
+
+    switch (ext) {
+      case '.html':
+      case '.htm':
+        content = parseHtml(raw);
+        break;
+      case '.json':
+        content = parseJson(raw);
+        break;
+      case '.csv':
+        content = parseCsv(raw);
+        break;
+      default:
+        content = normalizeText(raw);
+    }
 
     if (content.trim().length === 0) {
       return {
