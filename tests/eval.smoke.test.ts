@@ -6,7 +6,9 @@ import { retrieve } from '../src/retrieve.js';
 import { generateGroundedAnswer } from '../src/generate.js';
 import {
   aggregateRetrievalMetrics,
+  dcgAtK,
   loadGoldenDataset,
+  ndcgAtK,
   recallAtK,
   reciprocalRank,
   retrievedSourceIds,
@@ -117,6 +119,7 @@ describe('representative smoke evaluation (measured, synthetic baseline)', () =>
         caseId: c.id,
         recallAtK: recallAtK(ids, c.relevantDocumentIds, 3),
         reciprocalRank: reciprocalRank(ids, c.relevantDocumentIds),
+        ndcgAtK: ndcgAtK(ids, c.relevantDocumentIds, 3),
         retrievedSourceIds: ids,
       });
 
@@ -130,18 +133,21 @@ describe('representative smoke evaluation (measured, synthetic baseline)', () =>
     expect(aggregate.sampleSize).toBe(10);
     expect(aggregate.recallAtK).toBe(1);
     expect(aggregate.mrr).toBe(1);
+    expect(aggregate.ndcgAtK).toBe(1);
     expect(insufficientGenerationCases).toBe(2);
 
     // Report deltas vs previous version v0.1.0 for regression/delta tracking.
-    const previous = { sampleSize: 3, recallAtK: 1, mrr: 1 };
+    const previous = { sampleSize: 3, recallAtK: 1, mrr: 1, ndcgAtK: 1 };
     const delta = {
       sampleSizeDelta: aggregate.sampleSize - previous.sampleSize,
       recallAtKDelta: aggregate.recallAtK - previous.recallAtK,
       mrrDelta: aggregate.mrr - previous.mrr,
+      ndcgAtKDelta: aggregate.ndcgAtK - previous.ndcgAtK,
     };
     expect(delta.sampleSizeDelta).toBe(7);
     expect(delta.recallAtKDelta).toBe(0);
     expect(delta.mrrDelta).toBe(0);
+    expect(delta.ndcgAtKDelta).toBe(0);
 
     console.log(JSON.stringify({
       dataset: { path: DATASET, version: '0.2.0', sampleSize: aggregate.sampleSize },
