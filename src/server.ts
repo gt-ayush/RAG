@@ -239,6 +239,27 @@ function statusCodeFor(code: string): number {
 }
 
 /**
+ * Resolves the data region from the vector database URL.
+ * Used to enforce cross-region write/query blocks for residency.
+ */
+function resolveRegionFromConfig(config: PipelineConfig): string {
+  return config.vectorDb.url.includes('eu-west-1') ? 'eu-west-1' : 'us-east-1';
+}
+
+/**
+ * Builds a residency rule for a tenant based on the configured region.
+ */
+function buildResidencyRule(
+  tenantId: string,
+  config: PipelineConfig,
+): ResidencyRule {
+  return {
+    region: resolveRegionFromConfig(config),
+    tenantId,
+  };
+}
+
+/**
  * Resolves the tenant identity for a request. The trusted authorization
  * principal (resolved server-side, e.g. from a JWT) is authoritative. Falls
  * back to the X-Tenant-Id header, then the request body tenantId (best effort;
@@ -476,6 +497,28 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
         if (!roles.allowed) {
           sendError('forbidden', roles.reason ?? 'insufficient role', 403);
           return;
+        }
+
+        // Residency enforcement: tenant data may only reside in the configured
+        // region. Fail closed on any mismatch or missing rule.
+        if (deps.residencyPolicy && tenantId) {
+          const rule = buildResidencyRule(tenantId, deps.config);
+          const region = resolveRegionFromConfig(deps.config);
+          const residency = await checkResidency(
+            deps.residencyPolicy,
+            rule,
+            region,
+            tenantId,
+          );
+          if (!residency.allowed) {
+            await emitAudit(deps, 'query.residency_denied', {
+              reason: residency.reason,
+              tenantId,
+              region,
+            }, correlationId);
+            sendError('forbidden', residency.reason, 403);
+            return;
+          }
         }
 
         // Resolve trusted authorization context before any pipeline call.
@@ -722,6 +765,54 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
           initiatedAt: erasureResult.initiatedAt,
           residualChunkCount: erasureResult.residualChunkCount,
           storeResults: erasureResult.storeResults,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && req.url?.startsWith('/residency/check')) {
+        const reqUrl = req.url ?? '/';
+        const url = new URL(reqUrl, `http://${req.headers.host ?? 'localhost'}`);
+        const tenantId = url.searchParams.get('tenantId') ?? undefined;
+
+        if (!tenantId || tenantId.trim().length === 0) {
+          sendError('validation_error', 'tenantId query parameter is required', 400);
+          return;
+        }
+
+        if (!deps.residencyPolicy) {
+          // No residency policy configured: cannot verify, fail closed.
+          sendError('unavailable', 'residency policy not configured', 503);
+          return;
+        }
+
+        const rule = buildResidencyRule(tenantId, deps.config);
+        const region = resolveRegionFromConfig(deps.config);
+        const residency = await checkResidency(
+          deps.residencyPolicy,
+          rule,
+          region,
+          tenantId,
+        );
+
+        await emitAudit(deps, 'residency.checked', {
+          tenantId,
+          region,
+          allowed: residency.allowed,
+          reason: residency.reason,
+        }, undefined);
+
+        if (!residency.allowed) {
+          sendError('forbidden', residency.reason, 403);
+          return;
+        }
+
+        metrics.increment('http_residency_check');
+        statusCode = 200;
+        sendJson(200, {
+          allowed: true,
+          tenantId,
+          region,
+          matchedRule: residency.matchedRule,
         });
         return;
       }
