@@ -5,6 +5,8 @@ import type {
   ConcurrencyLimiterConfig,
   ConcurrencyLimiterMetrics,
   CacheMetrics,
+  RateLimiterConfig,
+  RateLimiterMetrics,
   RuntimeControlsConfig,
   RuntimeControlsMetrics,
 } from './types.js';
@@ -13,6 +15,62 @@ import type {
  * Source-of-truth keywords: concurrency, circuit breaker, cache, rate limit,
  * backpressure, runtime controls
  */
+
+/**
+ * Fixed-window rate limiter keyed by an arbitrary string (e.g. tenantId).
+ * Rejects when the request count in the current window exceeds maxRequests.
+ * Not thread-safe across processes; intended for a single service instance.
+ */
+export class RateLimiter {
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+  private readonly windows = new Map<string, { count: number; resetAt: number }>();
+  private rejected = 0;
+
+  constructor(config: RateLimiterConfig) {
+    this.maxRequests = config.maxRequests;
+    this.windowMs = config.windowMs;
+  }
+
+  /**
+   * Attempt to record a request for *key*. Returns true when allowed,
+   * false when the rate limit is exceeded.
+   */
+  allow(key: string): boolean {
+    const now = Date.now();
+    let window = this.windows.get(key);
+
+    if (!window || now >= window.resetAt) {
+      window = { count: 0, resetAt: now + this.windowMs };
+      this.windows.set(key, window);
+    }
+
+    if (window.count >= this.maxRequests) {
+      this.rejected += 1;
+      return false;
+    }
+
+    window.count += 1;
+    return true;
+  }
+
+  /** Snapshot metrics for a single key. */
+  snapshotForKey(key: string): RateLimiterMetrics {
+    const window = this.windows.get(key);
+    return {
+      key,
+      requestsInWindow: window ? window.count : 0,
+      windowResetAt: window ? window.resetAt : 0,
+      rejected: this.rejected,
+    };
+  }
+
+  /** Reset all windows (mainly for testing). */
+  reset(): void {
+    this.windows.clear();
+    this.rejected = 0;
+  }
+}
 
 /**
  * Concurrency limiter that bounds in-flight operations.
