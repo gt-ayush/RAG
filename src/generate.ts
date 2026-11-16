@@ -17,6 +17,9 @@ export interface ModelGeneration {
 export interface LanguageModel {
   readonly model: string;
   generate(prompt: GroundedPrompt): Promise<ModelGeneration>;
+  /** Optional streaming generation. Yields text deltas as they arrive from the provider.
+   * Fail-closed: throws on provider errors; callers fall back to non-streaming generate. */
+  streamGenerate?(prompt: GroundedPrompt): AsyncIterableIterator<string>;
 }
 
 export interface GenerateDependencies {
