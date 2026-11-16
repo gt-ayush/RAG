@@ -398,6 +398,10 @@ The following phases are planned future work. None are complete — they are tar
   - Emit structured evidence pack report for auditor review.
 - **20.4 Handover report**
   - Repeat the Phase 9.3 handover with real evidence, updated docs, changed files, commands run, results, known limitations, and follow-up work.
+  - Document all changed files across phases 15–20: `src/server.ts`, `src/cli.ts`, `src/runtime-controls.ts`, `src/authorization.ts`, `src/slo.ts`, `src/burn-in.ts`, `src/drift-monitor.ts`, `src/evidence-pack.ts`, `src/alert-checker.ts`, `tests/burn-in.test.ts`, `tests/alert-checker.test.ts`, `tests/evidence-pack.test.ts`, `Dockerfile`, `docker-compose.yml`, `infrastructure/systemd/rag.service`, `infrastructure/k8s/rag-deployment.yaml`, `infrastructure/k8s/rag-service.yaml`, `.dockerignore`, `.env.example`, `README.md`, `docs/07_compliance_gap_assessment.md`, `docs/10_deployment_cost_readiness.md`, `docs/12_lifecycle_runbooks.md`, `docs/14_release_readiness.md`.
+  - Record all verification commands run and their results: `npm run typecheck` (pass), `npm test` (pass — 33 files, 326 tests), `npm run build` (pass).
+  - Document known limitations: text-only parsing, no real providers wired by default, no durable persistence beyond in-memory, evaluation is synthetic mock-based, enterprise architecture remains a target design.
+  - Document follow-up work: wire real providers, deploy as HTTP service, collect SOC 2/GDPR operational evidence, production SLO validation with real traffic.
 
 **Exit criteria:** Release readiness evidenced for the full burn-in window; handover distinguishes verified capability from remaining gaps.
 
