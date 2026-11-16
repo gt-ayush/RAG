@@ -938,4 +938,99 @@ describe('HTTP server boundary', () => {
     const remaining = store.getAllRecords();
     expect(remaining.map((r) => r.chunk.documentId)).not.toContain('doc-1');
   });
+
+  // ===== Red-team: residency enforcement at the HTTP boundary =====
+
+  it('POST /query allows request when tenant region matches residency rule', async () => {
+    const policy = createResidencyPolicy([
+      { region: 'us-east-1', tenantId: 'tenant-a' },
+    ]);
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      residencyPolicy: policy,
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: async () => ({ ok: true, value: [] }),
+      } as any,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(200);
+  });
+
+  it('POST /query denies request when tenant region mismatches residency rule', async () => {
+    // Default test config uses localhost (us-east-1). Rule says eu-west-1 → mismatch.
+    const policy = createResidencyPolicy([
+      { region: 'eu-west-1', tenantId: 'tenant-a' },
+    ]);
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      residencyPolicy: policy,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: 'forbidden' } });
+  });
+
+  it('GET /residency/check allows when region matches', async () => {
+    const policy = createResidencyPolicy([
+      { region: 'us-east-1', tenantId: 'tenant-a' },
+    ]);
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      residencyPolicy: policy,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/residency/check?tenantId=tenant-a');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ allowed: true, tenantId: 'tenant-a' });
+  });
+
+  it('GET /residency/check denies when region mismatches', async () => {
+    const policy = createResidencyPolicy([
+      { region: 'eu-west-1', tenantId: 'tenant-a' },
+    ]);
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      residencyPolicy: policy,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/residency/check?tenantId=tenant-a');
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: 'forbidden' } });
+  });
+
+  it('GET /residency/check rejects missing tenantId with 400', async () => {
+    const policy = createResidencyPolicy([
+      { region: 'us-east-1', tenantId: 'tenant-a' },
+    ]);
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      residencyPolicy: policy,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/residency/check');
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: { code: 'validation_error' } });
+  });
+
+  it('GET /residency/check returns 503 when no policy configured', async () => {
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+    });
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/residency/check?tenantId=tenant-a');
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ error: { code: 'unavailable' } });
+  });
 });
