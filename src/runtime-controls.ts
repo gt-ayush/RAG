@@ -104,14 +104,17 @@ export class ConcurrencyLimiter {
           const timer = setTimeout(() => {
             this.queued -= 1;
             this.timeouts += 1;
+            const idx = this.waitQueue.findIndex((w) => w.timer === timer);
+            if (idx >= 0) this.waitQueue.splice(idx, 1);
             reject(new Error('concurrency acquire timeout'));
           }, this.acquireTimeoutMs);
           this.waitQueue.push({ resolve, reject, timer });
         });
       } finally {
-        this.queued -= 1;
+        // queued and active are managed by notifyWaiter/timeout handler,
+        // not here, to avoid double-counting when a waiter is woken up.
       }
-      this.active += 1;
+      // active is incremented by notifyWaiter when the waiter is woken.
     } else {
       this.rejected += 1;
       throw new Error('concurrency queue full');
