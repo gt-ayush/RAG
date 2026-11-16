@@ -80,7 +80,7 @@ export class AuditLogImpl implements AuditLog {
     this.now = options.now;
   }
 
-  async append(event: Omit<AuditEvent, 'seq' | 'hash'>): Promise<AuditEvent> {
+  async append(event: Omit<AuditEvent, 'seq' | 'hash' | 'timestamp' | 'previousHash'>): Promise<AuditEvent> {
     this.seq += 1;
     const timestamp = this.now();
     const redactedPayload = redactPayload(event.payload);
