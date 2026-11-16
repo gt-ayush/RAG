@@ -2,8 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as http from 'http';
 import { createHttpServer, setupGracefulShutdown, MAX_REQUEST_BODY_SIZE } from '../src/server.js';
 import type { ServerDependencies } from '../src/server.js';
+import { RateLimiter } from '../src/runtime-controls.js';
 import { makeAuthorizationPolicy } from '../src/authorization.js';
-import type { Chunk, Embedding, ModelGeneration, RetrievalResult } from '../src/types.js';
+import type {
+  Chunk,
+  Embedding,
+  ModelGeneration,
+  RetrievalResult,
+  TenantQuotaConfig,
+} from '../src/types.js';
 import type { LanguageModel } from '../src/generate.js';
 import type { EmbeddingProvider } from '../src/embeddings.js';
 import type { VectorStore } from '../src/vector-store.js';
@@ -355,5 +362,71 @@ describe('HTTP server boundary', () => {
 
     await stop();
     await stop(); // second call should not throw
+  });
+
+  it('POST /query returns 429 when tenant rate limit is exceeded', async () => {
+    const rateLimiter = new RateLimiter({ maxRequests: 2, windowMs: 60000 });
+    const { port, server } = await startTestServer({
+      rateLimiter,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+    });
+    servers.push(server);
+
+    // First two requests allowed.
+    for (let i = 0; i < 2; i += 1) {
+      const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+      expect(res.status).not.toBe(429);
+    }
+
+    // Third request rate-limited.
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(429);
+    expect(res.body).toMatchObject({ error: { code: 'rate_limited' } });
+  });
+
+  it('POST /query returns 429 when tenant quota is exceeded', async () => {
+    const tenantQuotas = new Map<string, TenantQuotaConfig>([
+      ['tenant-a', { maxRequestsPerWindow: 2, windowMs: 60000 }],
+    ]);
+    const { port, server } = await startTestServer({
+      tenantQuotas,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+    });
+    servers.push(server);
+
+    // First two requests allowed.
+    for (let i = 0; i < 2; i += 1) {
+      const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+      expect(res.status).not.toBe(429);
+    }
+
+    // Third request quota-limited.
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(429);
+    expect(res.body).toMatchObject({ error: { code: 'rate_limited' } });
+  });
+
+  it('POST /query returns 403 when principal lacks required role', async () => {
+    const { port, server } = await startTestServer({
+      requiredRoles: ['admin'],
+      authorizationPrincipal: { tenantId: 'tenant-a', roles: ['user'] },
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: 'forbidden' } });
+  });
+
+  it('POST /query allows request when principal has required role', async () => {
+    const { port, server } = await startTestServer({
+      requiredRoles: ['admin'],
+      authorizationPrincipal: { tenantId: 'tenant-a', roles: ['admin'] },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(200);
   });
 });
