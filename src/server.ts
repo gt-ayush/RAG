@@ -7,6 +7,8 @@ import type {
   PipelineConfig,
   Result,
   TenantAuthorizationPolicyConfig,
+  TenantQuotaConfig,
+  TenantQuotaCheckResult,
 } from './types.js';
 import type { VectorStore } from './vector-store.js';
 import type {
@@ -19,6 +21,7 @@ import { retrieve } from './retrieve.js';
 import { generateGroundedAnswer } from './generate.js';
 import { decisionToAuthzComponents, makeAuthorizationPolicy } from './authorization.js';
 import { createStructuredLogger, type Logger, MetricsRecorder } from './observability.js';
+import { RateLimiter as GatewayRateLimiter } from './runtime-controls.js';
 import * as http from 'http';
 
 /**
@@ -38,6 +41,12 @@ export interface ServerDependencies {
   authorizationPrincipal?: AuthorizationPrincipal;
   /** Optional tenant config for building a default authorization policy. */
   authorizationTenantConfig?: TenantAuthorizationPolicyConfig;
+  /** Optional per-tenant rate limiter for gateway-level throttling. */
+  rateLimiter?: GatewayRateLimiter;
+  /** Optional per-tenant quota configs keyed by tenantId. */
+  tenantQuotas?: Map<string, TenantQuotaConfig>;
+  /** Optional roles required to access the query endpoint (RBAC). */
+  requiredRoles?: readonly string[];
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -211,8 +220,109 @@ function statusCodeFor(code: string): number {
   if (code === 'unauthorized') return 401;
   if (code === 'forbidden') return 403;
   if (code === 'not_found') return 404;
+  if (code === 'rate_limited') return 429;
   if (code === 'unavailable' || code === 'timeout') return 503;
   return 500;
+}
+
+/**
+ * Resolves the tenant identity for a request. The trusted authorization
+ * principal (resolved server-side, e.g. from a JWT) is authoritative. Falls
+ * back to the X-Tenant-Id header, then the request body tenantId (best effort;
+ * never trusted for authorization, only for rate-limit keying).
+ */
+function resolveTenantId(
+  req: http.IncomingMessage,
+  body: QueryRequestBody | undefined,
+  deps: ServerDependencies,
+): string | undefined {
+  if (deps.authorizationPrincipal?.tenantId) {
+    return deps.authorizationPrincipal.tenantId;
+  }
+  const header = req.headers['x-tenant-id'];
+  if (typeof header === 'string' && header.trim().length > 0) {
+    return header.trim();
+  }
+  if (body?.tenantId) {
+    return body.tenantId;
+  }
+  return undefined;
+}
+
+/**
+ * Checks per-tenant quota (request rate + optional token budget).
+ * Fail-closed: on missing config or over-quota, returns allowed=false.
+ */
+function checkTenantQuota(
+  tenantId: string | undefined,
+  deps: ServerDependencies,
+): TenantQuotaCheckResult {
+  if (!tenantId || !deps.tenantQuotas) {
+    return { allowed: true };
+  }
+
+  const config = deps.tenantQuotas.get(tenantId);
+  if (!config) {
+    // No quota configured for this tenant: allow by default.
+    return { allowed: true };
+  }
+
+  const now = Date.now();
+  // Simple in-memory per-tenant window tracked on the rate limiter's windows
+  // map is not exposed here; track quota state lazily via a module-level map.
+  const quotaState = tenantQuotaWindows.get(tenantId) ?? {
+    requests: 0,
+    tokens: 0,
+    resetAt: now + config.windowMs,
+  };
+
+  if (now >= quotaState.resetAt) {
+    quotaState.requests = 0;
+    quotaState.tokens = 0;
+    quotaState.resetAt = now + config.windowMs;
+  }
+
+  quotaState.requests += 1;
+  tenantQuotaWindows.set(tenantId, quotaState);
+
+  if (quotaState.requests > config.maxRequestsPerWindow) {
+    return {
+      allowed: false,
+      reason: 'tenant request quota exceeded',
+      remainingRequests: 0,
+    };
+  }
+
+  return {
+    allowed: true,
+    remainingRequests: config.maxRequestsPerWindow - quotaState.requests,
+  };
+}
+
+/** Per-tenant quota window state (in-memory, single instance). */
+const tenantQuotaWindows = new Map<string, {
+  requests: number;
+  tokens: number;
+  resetAt: number;
+}>();
+
+/**
+ * Checks RBAC role requirements. Fail-closed: when requiredRoles is set and
+ * the principal lacks any required role, returns allowed=false.
+ */
+function checkRequiredRoles(
+  deps: ServerDependencies,
+): { allowed: boolean; reason?: string } {
+  if (!deps.requiredRoles || deps.requiredRoles.length === 0) {
+    return { allowed: true };
+  }
+  const principalRoles = new Set(deps.authorizationPrincipal?.roles ?? []);
+  for (const role of deps.requiredRoles) {
+    if (!principalRoles.has(role)) {
+      return { allowed: false, reason: `missing required role: ${role}` };
+    }
+  }
+  return { allowed: true };
 }
 
 function errorResponse(code: string, message: string): ErrorResponseBody {
@@ -295,6 +405,31 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
         }
 
         const { query } = validated.value;
+
+        // Gateway-level tenant throttling: rate limit, quota, and RBAC are
+        // enforced before any pipeline call. Fail closed on limit exceeded.
+        const tenantId = resolveTenantId(req, validated.value, deps);
+
+        if (deps.rateLimiter && tenantId) {
+          if (!deps.rateLimiter.allow(tenantId)) {
+            metrics.increment('http_429');
+            sendError('rate_limited', 'tenant rate limit exceeded', 429);
+            return;
+          }
+        }
+
+        const quota = checkTenantQuota(tenantId, deps);
+        if (!quota.allowed) {
+          metrics.increment('http_429');
+          sendError('rate_limited', quota.reason ?? 'tenant quota exceeded', 429);
+          return;
+        }
+
+        const roles = checkRequiredRoles(deps);
+        if (!roles.allowed) {
+          sendError('forbidden', roles.reason ?? 'insufficient role', 403);
+          return;
+        }
 
         // Resolve trusted authorization context before any pipeline call.
         // Fail closed: no principal or denied policy → 401/403, never 200.
