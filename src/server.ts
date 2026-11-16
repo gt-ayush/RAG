@@ -532,10 +532,12 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
         );
 
         if (!retrieved.ok) {
+          const authzFailure = retrieved.issues.some((i) => i.path === 'authorization');
           await emitAudit(deps, 'query.retrieval_error', {
             issues: retrieved.issues.map((i) => ({ path: i.path, message: i.message })),
+            authorizationFailure: authzFailure,
           }, correlationId);
-          sendError('retrieval_error', retrieved.issues.map((i) => `${i.path}: ${i.message}`).join('; '), 502);
+          sendError(authzFailure ? 'forbidden' : 'retrieval_error', retrieved.issues.map((i) => `${i.path}: ${i.message}`).join('; '), authzFailure ? 403 : 502);
           return;
         }
 
