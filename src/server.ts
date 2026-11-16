@@ -26,7 +26,7 @@ import type {
   RetrieveRequest,
 } from './retrieve.js';
 import { retrieve } from './retrieve.js';
-import { generateGroundedAnswer } from './generate.js';
+import { generateGroundedAnswer, buildGroundedPrompt } from './generate.js';
 import { decisionToAuthzComponents, makeAuthorizationPolicy } from './authorization.js';
 import { createStructuredLogger, type Logger, MetricsRecorder } from './observability.js';
 import { RateLimiter as GatewayRateLimiter, RuntimeControls } from './runtime-controls.js';
@@ -745,6 +745,221 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
             rank: r.rank,
           })),
         });
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/query/stream') {
+        let raw = '';
+        let receivedBytes = 0;
+        for await (const chunk of req) {
+          const data = chunk as string;
+          receivedBytes += Buffer.byteLength(data);
+          if (receivedBytes > MAX_REQUEST_BODY_SIZE) {
+            sendError('bad_request', 'request body too large', 413);
+            return;
+          }
+          raw += data;
+        }
+
+        const parsed = parseJsonBody<QueryRequestBody>(raw);
+        if (!parsed.ok) {
+          sendError('bad_request', 'invalid request body', 400);
+          return;
+        }
+
+        const validated = validateQueryBody(parsed.value);
+        if (!validated.ok) {
+          sendError('validation_error', validated.issues.map((i) => `${i.path}: ${i.message}`).join('; '), 400);
+          return;
+        }
+
+        const { query } = validated.value;
+        const correlationId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+        await emitAudit(deps, 'query.received', {
+          query,
+          topK: validated.value.topK ?? 5,
+          tenantId: validated.value.tenantId,
+        }, correlationId);
+
+        const streamTenantId = resolveTenantId(req, validated.value, deps);
+
+        if (deps.rateLimiter && streamTenantId) {
+          if (!deps.rateLimiter.allow(streamTenantId)) {
+            metrics.increment('http_429');
+            sendError('rate_limited', 'tenant rate limit exceeded', 429);
+            return;
+          }
+        }
+
+        const quota = checkTenantQuota(streamTenantId, deps);
+        if (!quota.allowed) {
+          metrics.increment('http_429');
+          sendError('rate_limited', quota.reason ?? 'tenant quota exceeded', 429);
+          return;
+        }
+
+        const roles = checkRequiredRoles(deps);
+        if (!roles.allowed) {
+          sendError('forbidden', roles.reason ?? 'insufficient role', 403);
+          return;
+        }
+
+        if (deps.residencyPolicy && streamTenantId) {
+          const rule = buildResidencyRule(streamTenantId, deps.config);
+          const region = resolveRegionFromConfig(deps.config);
+          const residency = await checkResidency(
+            deps.residencyPolicy,
+            rule,
+            region,
+            streamTenantId,
+          );
+          if (!residency.allowed) {
+            await emitAudit(deps, 'query.residency_denied', {
+              reason: residency.reason,
+              tenantId: streamTenantId,
+              region,
+            }, correlationId);
+            sendError('forbidden', residency.reason, 403);
+            return;
+          }
+        }
+
+        let authz: { context: AuthorizationContext; evaluate?: AuthorizationEvaluator } | undefined;
+        if (deps.authorizationPolicy || deps.authorizationTenantConfig) {
+          const policy =
+            deps.authorizationPolicy ??
+            makeAuthorizationPolicy(deps.authorizationTenantConfig!);
+          const principal = deps.authorizationPrincipal;
+          if (!principal) {
+            await emitAudit(deps, 'query.authorization_denied', {
+              reason: 'missing trusted principal',
+              tenantId: streamTenantId,
+            }, correlationId);
+            sendError('unauthorized', 'missing trusted principal', 401);
+            return;
+          }
+          const decision = await policy(principal, {
+            text: query,
+            topK: validated.value.topK ?? 5,
+            ...(validated.value.tenantId ? { tenantId: validated.value.tenantId } : {}),
+          });
+          if (!decision.allowed) {
+            await emitAudit(deps, 'query.authorization_denied', {
+              reason: decision.reason,
+              tenantId: decision.tenantId,
+            }, correlationId);
+            sendError('forbidden', decision.reason, 403);
+            return;
+          }
+          const components = decisionToAuthzComponents(decision);
+          authz = {
+            context: components.context,
+          };
+        }
+
+        const retrieveRequest: RetrieveRequest = {
+          text: query,
+          topK: validated.value.topK ?? 5,
+        };
+        if (validated.value.tenantId !== undefined) {
+          retrieveRequest.tenantId = validated.value.tenantId;
+        }
+
+        const retrieved = await (deps.runtimeControls
+          ? deps.runtimeControls.execute(`retrieve:${correlationId}`, async () => {
+              return retrieve(
+                retrieveRequest,
+                {
+                  embeddingProvider,
+                  vectorStore,
+                  ...(deps.reranker ? { reranker: deps.reranker } : {}),
+                },
+                authz,
+              );
+            })
+          : retrieve(
+              retrieveRequest,
+              {
+                embeddingProvider,
+                vectorStore,
+                ...(deps.reranker ? { reranker: deps.reranker } : {}),
+              },
+              authz,
+            ));
+
+        if (!retrieved.ok) {
+          const authzFailure = retrieved.issues.some((i) => i.path === 'authorization');
+          await emitAudit(deps, 'query.retrieval_error', {
+            issues: retrieved.issues.map((i) => ({ path: i.path, message: i.message })),
+            authorizationFailure: authzFailure,
+          }, correlationId);
+          sendError(authzFailure ? 'forbidden' : 'retrieval_error', retrieved.issues.map((i) => `${i.path}: ${i.message}`).join('; '), authzFailure ? 403 : 502);
+          return;
+        }
+
+        await emitAudit(deps, 'query.retrieved', {
+          candidateCount: retrieved.value.length,
+          candidateIds: retrieved.value.map((r) => r.chunk.id),
+          sourceIds: retrieved.value.map((r) => r.sourceId),
+          filters: { tenantId: retrieveRequest.tenantId },
+        }, correlationId);
+
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        });
+
+        const sendEvent = (event: string, data: unknown) => {
+          res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        };
+
+        sendEvent('sources', {
+          sources: retrieved.value.map((r) => ({
+            chunkId: r.chunk.id,
+            sourceId: r.sourceId,
+            source: r.chunk.metadata.source,
+          })),
+        });
+
+        if (!languageModel || !languageModel.streamGenerate) {
+          sendEvent('error', {
+            code: 'streaming_not_available',
+            message: 'Streaming generation is not available for this model.',
+          });
+          sendEvent('done', {});
+          return;
+        }
+
+        let streamedAny = false;
+        try {
+          const groundedPrompt = buildGroundedPrompt({
+            query,
+            context: retrieved.value,
+          });
+          for await (const delta of languageModel.streamGenerate(groundedPrompt)) {
+            if (typeof delta === 'string' && delta.length > 0) {
+              sendEvent('token', { text: delta });
+              streamedAny = true;
+            }
+          }
+        } catch (error) {
+          sendEvent('error', {
+            code: 'generation_error',
+            message: error instanceof Error ? error.message : String(error),
+          });
+          sendEvent('done', {});
+          return;
+        }
+
+        await emitAudit(deps, 'generation.completed', {
+          citationsCount: retrieved.value.length,
+          insufficientContext: false,
+          streamed: true,
+        }, correlationId);
+
+        sendEvent('done', {});
         return;
       }
 
