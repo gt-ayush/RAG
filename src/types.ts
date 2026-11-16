@@ -483,6 +483,44 @@ export interface ConcurrencyLimiterConfig {
   acquireTimeoutMs: number;
 }
 
+/** Configuration for a fixed-window rate limiter. */
+export interface RateLimiterConfig {
+  /** Maximum number of requests allowed per window per key. */
+  maxRequests: number;
+  /** Window size in milliseconds. */
+  windowMs: number;
+}
+
+/** Snapshot of rate limiter metrics for a single key. */
+export interface RateLimiterMetrics {
+  key: string;
+  requestsInWindow: number;
+  windowResetAt: number;
+  rejected: number;
+}
+
+/** Combined per-tenant quota: request rate and token budget. */
+export interface TenantQuotaConfig {
+  /** Maximum requests per window for this tenant. */
+  maxRequestsPerWindow: number;
+  /** Maximum tokens per window for this tenant (0 = unchecked). */
+  maxTokensPerWindow?: number;
+  /** Window size in milliseconds. */
+  windowMs: number;
+}
+
+/** Result of a tenant quota check. */
+export interface TenantQuotaCheckResult {
+  /** Whether the request is allowed under quota. */
+  allowed: boolean;
+  /** Reason when not allowed. */
+  reason?: string;
+  /** Remaining requests in the current window. */
+  remainingRequests?: number;
+  /** Remaining tokens in the current window (if tracked). */
+  remainingTokens?: number;
+}
+
 /** State of a circuit breaker. */
 export type CircuitBreakerState = 'closed' | 'open' | 'half-open';
 
