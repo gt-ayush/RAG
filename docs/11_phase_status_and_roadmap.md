@@ -61,7 +61,7 @@ This document records (a) which implementation phases are complete for the **loc
 | Command | Result |
 |---|---|
 | `npm run typecheck` | pass (exit 0) |
-| `npm test` | pass — 33 test files, 326 tests |
+| `npm test` | pass — 34 test files, 344 tests |
 | `npm run build` | pass (exit 0) |
 | `npm run evaluate` | pass (exit 0) |
 | `node scripts/benchmark-smoke.mjs` | pass (exit 0) |
@@ -79,7 +79,7 @@ Re-run these commands after any change; do not carry forward stale results.
 
 **No remaining sub-phases in the baseline.** All 20 phases are complete.
 
-The following phases are planned future work. Phase 25.1 is complete; phases 21–24 and 25.2 remain planned.
+The following phases are planned future work. Phase 25 is complete; phases 21–24 remain planned.
 
 ---
 
@@ -174,10 +174,7 @@ The following phases are planned future work. Phase 25.1 is complete; phases 21�
 - **25.2 Final `README.md` & Repo Hygiene Pass** — Complete
   - Synced `README.md` scripts table and project structure tree with `scripts/smoke-live.mjs`.
   - Updated `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17 to reflect all 25 phases complete.
-- **25.2 Final `README.md` & Repo Hygiene Pass**
-  - Sync `README.md` project structure tree, script table, and deployment section with all files added across phases 15–25.
-  - Update `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17 phase status tables to reflect all 25 phases.
-  - Archive or remove any temporary scratchpad notes created during development.
+  - No temporary scratchpad files remain (`note.md` is the archived enterprise architecture package, referenced by README, not a scratchpad).
 
 **Exit criteria:** Live smoke runner exists but does not consume paid quota in default test suite; README and docs are consistent with actual implementation; no temporary scratchpad files remain.
 
