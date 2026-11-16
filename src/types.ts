@@ -729,3 +729,94 @@ export interface ModelGovernanceResult {
   /** Timestamp when the decision was made. */
   decidedAt: string;
 }
+
+/** Type of SLO being measured. */
+export type SloType =
+  | 'availability'
+  | 'latency_p95'
+  | 'error_rate'
+  | 'recall_at_k'
+  | 'mrr'
+  | 'ndcg_at_k'
+  | 'audit_log_loss'
+  | 'security_findings';
+
+/** Result of evaluating a single SLO. */
+export interface SloResult {
+  /** Type of SLO. */
+  type: SloType;
+  /** Whether the SLO passed. */
+  passed: boolean;
+  /** Measured value. */
+  value: number;
+  /** Target threshold value. */
+  target: number;
+  /** Whether lower values are better (e.g. latency, error rate). */
+  lowerIsBetter: boolean;
+  /** Human-readable description. */
+  description: string;
+}
+
+/** Configuration for a burn-in test run. */
+export interface BurnInConfig {
+  /** Duration of the burn-in in milliseconds. */
+  durationMs: number;
+  /** Target queries per second. */
+  targetQps: number;
+  /** Target P95 latency in milliseconds. */
+  targetLatencyP95Ms: number;
+  /** Target availability as a fraction (e.g. 0.999 for 99.9%). */
+  targetAvailability: number;
+  /** Maximum acceptable error rate as a fraction. */
+  maxErrorRate: number;
+  /** Target Recall@K. */
+  targetRecallAtK: number;
+  /** K value for recall. */
+  recallK: number;
+  /** Whether security findings must be zero. */
+  requireZeroSecurityFindings: boolean;
+  /** Whether audit log loss must be zero. */
+  requireZeroAuditLogLoss: boolean;
+}
+
+/** Result of a single burn-in query measurement. */
+export interface BurnInQueryResult {
+  /** Whether the query succeeded. */
+  success: boolean;
+  /** Latency in milliseconds. */
+  latencyMs: number;
+  /** HTTP status code. */
+  statusCode: number;
+  /** Error message if failed. */
+  error?: string;
+  /** Recall@K for this query (if evaluable). */
+  recallAtK?: number;
+  /** Whether the query returned audit-log evidence. */
+  auditLogged?: boolean;
+}
+
+/** Aggregated burn-in results. */
+export interface BurnInResult {
+  /** Burn-in configuration used. */
+  config: BurnInConfig;
+  /** Start timestamp. */
+  startedAt: string;
+  /** End timestamp. */
+  endedAt: string;
+  /** Total duration in milliseconds. */
+  durationMs: number;
+  /** Total queries issued. */
+  totalQueries: number;
+  /** Successful queries. */
+  successfulQueries: number;
+  /** Failed queries. */
+  failedQueries: number;
+  /** Query-level results. */
+  queryResults: readonly BurnInQueryResult[];
+  /** SLO evaluation results. */
+  sloResults: readonly SloResult[];
+  /** Whether all SLOs passed. */
+  allSlosPassed: boolean;
+  /** Per-second query counts (for throughput analysis). */
+  queriesPerSecond: readonly number[];
+}
