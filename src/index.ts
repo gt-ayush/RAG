@@ -100,7 +100,9 @@ export type {
 } from './eval.js';
 export {
   aggregateRetrievalMetrics,
+  dcgAtK,
   loadGoldenDataset,
+  ndcgAtK,
   recallAtK,
   reciprocalRank,
   retrievedSourceIds,
