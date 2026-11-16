@@ -73,20 +73,114 @@ Re-run these commands after any change; do not carry forward stale results.
 
 ## Forward Roadmap
 
-**No remaining sub-phases.** All 20 phases are complete.
+---
 
-All 20 phases have been implemented, tested, and documented. Phases 0–14 form the verified local baseline; phases 15–20 extend the baseline with production service hardening, multi-tenancy, security/compliance evidence, retrieval quality improvements, durable document lifecycle, observability/SLOs/cost governance, and release readiness.
+## Forward Roadmap (Phases 21–25)
 
-The following planned future work remains beyond phase 20:
+**No remaining sub-phases in the baseline.** All 20 phases are complete.
 
-- **Real provider wiring**: Wire `HttpEmbeddingProvider`, `QdrantStore`, `HttpLLMProvider` into `src/index.ts` and `src/server.ts` with real `EMBEDDING_BASE_URL`, `VECTOR_DB_URL`, `LLM_BASE_URL` env vars (requires explicit authorization — see AGENTS.md §17).
-- **Durable persistence**: Replace `MemoryVectorStore` with `QdrantStore` as default; add durable audit log and erasure verification sweep beyond in-memory.
-- **Production service deployment**: Deploy `src/server.ts` as an HTTP service (Docker/K8s manifests exist in `infrastructure/`).
-- **Production SOC 2/GDPR evidence**: Collect operational evidence for SOC 2 Type II and GDPR claims (currently documented as targets, not verified compliance).
+The following phases are planned future work. None are complete — they are targets for future development. Phases 21–25 build on the completed baseline (0–20); they do not re-implement work already delivered in phases 0–20. When a sub-phase is completed, move it from this section to the completed baseline table above.
 
 ---
 
-## Dependencies and Ordering
+### Phase 21 — Real-Time Streaming Generation & Citation Verification
+
+**Goal:** Enable streaming LLM responses with per-token delivery and post-generation citation verification against retrieved evidence.
+
+#### Sub-phases:
+
+- **21.1 Streaming LLM Provider**
+  - Add `streamGenerate` method to the `LanguageModel` interface and `HttpLLMProvider` implementation that emits SSE-style chunk deltas from the provider’s streaming endpoint.
+  - Implement SSE chunk parsing (strip `data: ` prefixes, handle `[DONE]` markers, handle connection errors with fail-closed fallback to non-streaming generate).
+- **21.2 SSE Streaming Endpoint**
+  - Add `POST /query/stream` endpoint to `src/server.ts` that streams Server-Sent Events with event types `sources`, `token`, `done`, and `error`.
+  - Ensure authorization, rate limiting, quota, and residency checks run before any token is streamed (fail-closed).
+  - Preserve citation IDs in retrieved context so the client can map citations to source documents.
+- **21.3 Post-Generation Citation Verifier**
+  - Implement a deterministic citation checker in `src/generate.ts` that verifies every `[chunk-id]` citation in generated text against the retrieved chunk set.
+  - Reject or flag citations that reference chunk IDs not present in the retrieval results (hallucinated citation detection).
+  - Add tests confirming injection of fake citation IDs is rejected.
+
+**Exit criteria:** Streaming endpoint returns SSE events with correct event types; citation verification rejects non-retrieved chunk IDs; fail-closed authorization enforced before streaming; tests pass.
+
+---
+
+### Phase 22 — Rich Document Ingestion & HTTP Upload Lifecycle
+
+**Goal:** Extend ingestion beyond plain text to rich document formats and expose HTTP endpoints for document lifecycle management.
+
+#### Sub-phases:
+
+- **22.1 Multi-Format Parsers**
+  - Add `ingestBuffer` to `src/ingest.ts` supporting HTML (`.html`), JSON/CSV (`.json`, `.csv`), and PDF (`.pdf` page-aware extraction).
+  - Preserve source IDs, filenames, page/section offsets, and ingestion metadata for all formats.
+  - Report malformed, unsupported, empty, or partially unreadable documents explicitly (do not silently drop).
+- **22.2 HTTP Document Lifecycle Endpoints**
+  - Add `POST /documents` endpoint to `src/server.ts` accepting multipart/form-data document uploads with tenant-scoped ingestion.
+  - Add `DELETE /documents/:documentId` endpoint enforcing fail-closed tenant authorization (tenant-owned documents only).
+  - Both endpoints integrate with the ingestion lifecycle tracker and erasure cascade from Phase 18.
+
+**Exit criteria:** HTML/JSON/CSV/PDF parse successfully with traceable metadata; `POST /documents` and `DELETE /documents/:documentId` enforce tenant isolation and return structured errors; tests pass.
+
+---
+
+### Phase 23 — Hybrid Retrieval & Query Expansion
+
+**Goal:** Combine dense and sparse retrieval with reciprocal-rank fusion and support multi-query expansion.
+
+#### Sub-phases:
+
+- **23.1 In-Process BM25 & Reciprocal Rank Fusion**
+  - Implement BM25 sparse retrieval over indexed chunk text in `src/retrieve.ts`.
+  - Add reciprocal-rank fusion (RRF) to combine dense vector scores and sparse BM25 scores into a single ranked result set.
+  - Preserve dense-only path as the default baseline; hybrid mode enabled only when explicitly opted in.
+- **23.2 Multi-Query Expansion Hook**
+  - Add `queryExpander` interface to `src/retrieve.ts` that produces variant queries from a user query.
+  - Include content-hash deduplication to avoid re-retrieving identical variant queries.
+  - Include per-variant latency budgets and a bypass path when transformation is disabled.
+
+**Exit criteria:** Hybrid retrieval returns fused results; query expansion produces deduplicated variants; dense-only path remains available; tests pass.
+
+---
+
+### Phase 24 — Distributed State & Prometheus Metrics
+
+**Goal:** Make runtime state pluggable across service instances and expose Prometheus-compatible metrics.
+
+#### Sub-phases:
+
+- **24.1 Pluggable Runtime State Store**
+  - Define `RuntimeStateStore` interface in `src/runtime-controls.ts` with methods for tenant quotas, rate-limit windows, and circuit-breaker state.
+  - Implement an in-memory store as the default implementation.
+  - Design the interface so a Redis adapter can be added later without changing pipeline code.
+- **24.2 Prometheus Metrics Endpoint**
+  - Add `GET /metrics` endpoint to `src/observability.ts` exposing Prometheus text-format metrics (request counts, latency histograms, error rates, cache hit rates, circuit-breaker state).
+  - Wire `/metrics` into `src/server.ts` with no PII or secret values in any metric label or value.
+
+**Exit criteria:** Runtime state store interface supports in-memory and future Redis backends; `/metrics` returns valid Prometheus text format with no secrets leaked; tests pass.
+
+---
+
+### Phase 25 — Live Credential Smoke Suite & Documentation Sync
+
+**Goal:** Provide an opt-in live smoke test against real provider endpoints and synchronize all documentation.
+
+#### Sub-phases:
+
+- **25.1 Opt-In Live Smoke Runner**
+  - Create `scripts/smoke-live.mjs` that runs the RAG pipeline against real embedding/LLM/vector store endpoints using env-var credentials.
+  - Register as `npm run smoke:live` and exclude it from the default `npm test` suite (never spend paid quota in CI by default).
+  - Require explicit `--force` flag or env var to confirm paid API usage before running.
+- **25.2 Final `README.md` & Repo Hygiene Pass**
+  - Sync `README.md` project structure tree, script table, and deployment section with all files added across phases 15–25.
+  - Update `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17 phase status tables to reflect all 25 phases.
+  - Archive or remove any temporary scratchpad notes created during development.
+
+**Exit criteria:** Live smoke runner exists but does not consume paid quota in default test suite; README and docs are consistent with actual implementation; no temporary scratchpad files remain.
+
+---
+
+## Dependencies and Ordering (forward phases 15–25)
 
 - **Phase 15** is the default next increment (smallest useful slice: one service at a time).
 - **Phase 16** benefits from real providers/stores for meaningful measurement; it may proceed with mocks only if labelled as synthetic.
@@ -94,6 +188,11 @@ The following planned future work remains beyond phase 20:
 - **Phase 18** requires Phase 15 runtime boundaries for meaningful isolation/audit evidence.
 - **Phase 19** requires Phases 15–18 for realistic measurement.
 - **Phase 20** requires Phases 15–19 for a full burn-in window.
+- **Phase 21** requires Phase 10 real LLM provider adapter for streaming; Phase 12 HTTP boundary for SSE endpoint.
+- **Phase 22** requires Phase 18 durable ingestion lifecycle and Phase 12 server boundary.
+- **Phase 23** requires Phase 11 retrieval quality infrastructure and Phase 10 persistent store for document text access.
+- **Phase 24** requires Phase 15 runtime controls and Phase 18 durable state.
+- **Phase 25** requires Phases 15–24 complete; explicit user authorization before running live smoke tests against real providers.
 
 ## Working Rules for Future Phases
 
