@@ -1,0 +1,25 @@
+[Unit]
+Description=RAG HTTP Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/rag
+EnvironmentFile=/opt/rag/.env
+ExecStart=/usr/bin/node /opt/rag/dist/cli.js
+ExecStop=/bin/kill -TERM $MAINPID
+# Graceful shutdown: SIGTERM triggers setupGracefulShutdown drain then close.
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=5
+# Do not log secrets; env file is mode 0600 and read-only for the service user.
+User=rag
+Group=rag
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/opt/rag/logs
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
