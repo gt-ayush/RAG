@@ -3,6 +3,7 @@ import * as http from 'http';
 import { createHttpServer, setupGracefulShutdown, MAX_REQUEST_BODY_SIZE } from '../src/server.js';
 import type { ServerDependencies } from '../src/server.js';
 import { RateLimiter, RuntimeControls } from '../src/runtime-controls.js';
+import { CostMetricsTracker } from '../src/cost-tracking.js';
 import { createAuditLog } from '../src/audit.js';
 import { createErasureService, createResidencyPolicy } from '../src/erasure.js';
 import { MemoryVectorStore } from '../src/memory-store.js';
@@ -1104,5 +1105,90 @@ describe('HTTP server boundary', () => {
     const snap = controls.snapshot();
     expect(snap.concurrency.completed).toBe(1);
     expect(snap.circuitBreaker.totalCalls).toBe(1);
+  });
+
+  // ===== Phase 19.3: Cost measurement & per-tenant attribution =====
+
+  it('POST /query tracks per-tenant cost attribution', async () => {
+    const costTracker = new CostMetricsTracker({
+      embeddingCostPer1kTokens: 0.10,
+      llmInputCostPer1kTokens: 0.50,
+      llmOutputCostPer1kTokens: 1.50,
+      vectorWriteCostPer1kVectors: 0.10,
+      vectorReadCostPer1kVectors: 0.05,
+    });
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      costTracker,
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: async () => ({ ok: true, value: [] }),
+      } as any,
+      languageModel: {
+        model: 'test-lm',
+        generate: async () => ({ text: 'answer text here', insufficientContext: false }),
+      } as any,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test query', topK: 5 });
+    expect(res.status).toBe(200);
+
+    const breakdown = costTracker.getTenantCostBreakdown();
+    expect(breakdown).toHaveLength(1);
+    expect(breakdown[0].tenantId).toBe('tenant-a');
+    expect(breakdown[0].queryCount).toBe(1);
+    expect(breakdown[0].totalCost).toBeGreaterThan(0);
+  });
+
+  it('GET /metrics returns cost and runtime controls snapshots', async () => {
+    const costTracker = new CostMetricsTracker({
+      embeddingCostPer1kTokens: 0.10,
+      llmInputCostPer1kTokens: 0.50,
+      llmOutputCostPer1kTokens: 1.50,
+      vectorWriteCostPer1kVectors: 0.10,
+      vectorReadCostPer1kVectors: 0.05,
+    });
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      costTracker,
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: async () => ({ ok: true, value: [] }),
+      } as any,
+      languageModel: {
+        model: 'test-lm',
+        generate: async () => ({ text: 'answer', insufficientContext: false }),
+      } as any,
+    });
+    servers.push(server);
+
+    // Make a query first to generate cost data
+    await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+
+    const res = await request(port, 'GET', '/metrics');
+    expect(res.status).toBe(200);
+    expect(res.body.cost.totalCost).toBeGreaterThan(0);
+    expect(res.body.cost.queryCount).toBeGreaterThanOrEqual(0);
+    expect(res.body.tenantCostBreakdown).toHaveLength(1);
+    expect(res.body.tenantCostBreakdown[0].tenantId).toBe('tenant-a');
+  });
+
+  it('GET /metrics returns empty cost when no cost tracker configured', async () => {
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+    });
+    servers.push(server);
+
+    const res = await request(port, 'GET', '/metrics');
+    expect(res.status).toBe(200);
+    expect(res.body.cost.totalCost).toBe(0);
+    expect(res.body.cost.queryCount).toBe(0);
+    expect(res.body.tenantCostBreakdown).toHaveLength(0);
   });
 });
