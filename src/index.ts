@@ -168,8 +168,13 @@ export type {
   CostConfig,
   CostMetrics,
   EmbeddingCost,
+  EmbeddingDriftConfig,
+  EmbeddingDriftResult,
+  EmbeddingDistributionSnapshot,
   GenerationCost,
   IngestionCost,
+  ModelGovernanceResult,
+  ModelVersionDecision,
   QueryCost,
 } from './types.js';
 export type { TenantCostBreakdown } from './cost-tracking.js';
@@ -178,3 +183,11 @@ export {
   DefaultCostConfig,
   createCostTracker,
 } from './cost-tracking.js';
+
+export {
+  EmbeddingDriftMonitor,
+  ModelGovernance,
+  evaluateEmbeddingDrift,
+  klDivergenceDiagonalGaussian,
+  buildSnapshot,
+} from './drift-monitor.js';
