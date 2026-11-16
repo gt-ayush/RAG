@@ -58,7 +58,7 @@ describe('ingestSources', () => {
     expect(batch.files.map((f) => f.parse.status)).toEqual([
       'ok',
       'empty',
-      'unsupported',
+      'empty',
       'error',
     ]);
     expect(batch.chunks).toHaveLength(1);
