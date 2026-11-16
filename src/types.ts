@@ -346,6 +346,8 @@ export type AuditEventType =
   | 'query.retrieval_error'
   | 'query.authorization_denied'
   | 'query.residency_denied'
+  | 'ingestion.requested'
+  | 'ingestion.rejected'
   | 'generation.started'
   | 'generation.completed'
   | 'generation.error'
