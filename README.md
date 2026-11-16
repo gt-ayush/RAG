@@ -50,6 +50,7 @@ RAG/
 ├── tests/                       # Vitest test suite
 ├── data/eval/                   # Versioned golden dataset + baseline results
 ├── scripts/benchmark-smoke.mjs  # Local in-memory micro-benchmark (smoke)
+├── scripts/smoke-live.mjs       # Opt-in end-to-end live smoke test (real providers, requires --force)
 ├── Dockerfile                   # Production container image (Phase 15.3)
 ├── docker-compose.yml           # Local development orchestration (Phase 15.3)
 ├── infrastructure/
@@ -181,6 +182,7 @@ Notes:
 | `npm run typecheck` | Type-check (`tsc --noEmit`) |
 | `npm test` | Run Vitest suite |
 | `npm run evaluate` | Run synthetic smoke evaluation (`tests/eval.smoke.test.ts`) |
+| `npm run smoke:live` | Opt-in end-to-end live smoke test against real providers (requires `--force` or `SMOKE_LIVE_FORCE=1`; may incur paid API usage) |
 
 Local smoke benchmark (after build): `node scripts/benchmark-smoke.mjs` (records in-memory/mock micro-latency only).
 
