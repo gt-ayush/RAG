@@ -216,6 +216,8 @@ export interface GeneratedAnswer {
   citations: readonly Citation[];
   /** True when the available context was insufficient to answer reliably. */
   insufficientContext: boolean;
+  /** Chunk IDs cited by the model but not present in retrieved context (hallucinated citations). */
+  ignoredCitationIds: readonly string[];
 }
 
 /** Configuration for an embedding provider that returns vectors to the caller. */
