@@ -27,7 +27,7 @@ import { retrieve } from './retrieve.js';
 import { generateGroundedAnswer } from './generate.js';
 import { decisionToAuthzComponents, makeAuthorizationPolicy } from './authorization.js';
 import { createStructuredLogger, type Logger, MetricsRecorder } from './observability.js';
-import { RateLimiter as GatewayRateLimiter } from './runtime-controls.js';
+import { RateLimiter as GatewayRateLimiter, RuntimeControls } from './runtime-controls.js';
 import { checkResidency } from './erasure.js';
 import * as http from 'http';
 
@@ -60,6 +60,8 @@ export interface ServerDependencies {
   erasureService?: ErasureService;
   /** Optional residency policy for region/tenant enforcement. */
   residencyPolicy?: ResidencyPolicy;
+  /** Optional runtime controls (concurrency, circuit breaker, cache) for load management. */
+  runtimeControls?: RuntimeControls;
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -564,15 +566,27 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
           retrieveRequest.tenantId = validated.value.tenantId;
         }
 
-        const retrieved = await retrieve(
-          retrieveRequest,
-          {
-            embeddingProvider,
-            vectorStore,
-            ...(deps.reranker ? { reranker: deps.reranker } : {}),
-          },
-          authz,
-        );
+        const retrieved = await (deps.runtimeControls
+          ? deps.runtimeControls.execute(`retrieve:${correlationId}`, async () => {
+              return retrieve(
+                retrieveRequest,
+                {
+                  embeddingProvider,
+                  vectorStore,
+                  ...(deps.reranker ? { reranker: deps.reranker } : {}),
+                },
+                authz,
+              );
+            })
+          : retrieve(
+              retrieveRequest,
+              {
+                embeddingProvider,
+                vectorStore,
+                ...(deps.reranker ? { reranker: deps.reranker } : {}),
+              },
+              authz,
+            ));
 
         if (!retrieved.ok) {
           const authzFailure = retrieved.issues.some((i) => i.path === 'authorization');
@@ -608,14 +622,25 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
             contextCount: retrieved.value.length,
           }, correlationId);
 
-          const generated = await generateGroundedAnswer(
-            { query, context: retrieved.value },
-            {
-              model: languageModel,
-              ...(config.llm ? { expectedModel: config.llm.model } : {}),
-              ...(config.llm?.timeoutMs ? { timeoutMs: config.llm.timeoutMs } : {}),
-            },
-          );
+          const generated = await (deps.runtimeControls
+            ? deps.runtimeControls.execute(`generate:${correlationId}`, async () => {
+                return generateGroundedAnswer(
+                  { query, context: retrieved.value },
+                  {
+                    model: languageModel,
+                    ...(config.llm ? { expectedModel: config.llm.model } : {}),
+                    ...(config.llm?.timeoutMs ? { timeoutMs: config.llm.timeoutMs } : {}),
+                  },
+                );
+              })
+            : generateGroundedAnswer(
+                { query, context: retrieved.value },
+                {
+                  model: languageModel,
+                  ...(config.llm ? { expectedModel: config.llm.model } : {}),
+                  ...(config.llm?.timeoutMs ? { timeoutMs: config.llm.timeoutMs } : {}),
+                },
+              ));
 
           if (!generated.ok) {
             await emitAudit(deps, 'generation.error', {
