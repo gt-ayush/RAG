@@ -6,6 +6,8 @@ import type {
   AuthorizationPrincipal,
   AuditEventType,
   AuditLog,
+  DegradationConfig,
+  DegradationMode,
   ErasureRequest,
   ErasureService,
   PipelineConfig,
@@ -30,6 +32,7 @@ import { createStructuredLogger, type Logger, MetricsRecorder } from './observab
 import { RateLimiter as GatewayRateLimiter, RuntimeControls } from './runtime-controls.js';
 import { checkResidency } from './erasure.js';
 import { CostMetricsTracker } from './cost-tracking.js';
+import { AlertChecker } from './alert-checker.js';
 import * as http from 'http';
 
 /**
@@ -65,6 +68,10 @@ export interface ServerDependencies {
   runtimeControls?: RuntimeControls;
   /** Optional cost tracker for per-tenant cost attribution. */
   costTracker?: CostMetricsTracker;
+  /** Optional degradation config for overload behavior. */
+  degradationConfig?: DegradationConfig;
+  /** Optional alert checker for runtime metric thresholds. */
+  alertChecker?: AlertChecker;
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -411,6 +418,7 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
   const server = http.createServer(async (req, res) => {
     const startMs = Date.now();
     let statusCode = 200;
+    let degradationMode: DegradationMode = 'none';
 
     const sendJson = (code: number, body: unknown) => {
       const payload = JSON.stringify(body);
@@ -609,6 +617,21 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
           filters: { tenantId: retrieveRequest.tenantId },
         }, correlationId);
 
+        // Determine degradation mode under overload. When in retrieval_only
+        // mode, skip generation and return retrieval-only results.
+        if (deps.degradationConfig && deps.runtimeControls) {
+          const rcMetrics = deps.runtimeControls.snapshot();
+          const cbOpen = rcMetrics.circuitBreaker.state === 'open';
+          const rejectionRate = rcMetrics.concurrency.completed > 0
+            ? rcMetrics.concurrency.rejected / (rcMetrics.concurrency.completed + rcMetrics.concurrency.rejected)
+            : 0;
+          if (deps.degradationConfig.triggerCircuitOpen && cbOpen) {
+            degradationMode = 'retrieval_only';
+          } else if (deps.degradationConfig.triggerRejectionRate > 0 && rejectionRate >= deps.degradationConfig.triggerRejectionRate) {
+            degradationMode = 'retrieval_only';
+          }
+        }
+
         let answer;
         if (retrieved.value.length === 0) {
           await emitAudit(deps, 'generation.insufficient_context', {
@@ -620,55 +643,76 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
             insufficientContext: true,
           };
         } else {
-          // Audit: generation started.
-          await emitAudit(deps, 'generation.started', {
-            contextCount: retrieved.value.length,
-          }, correlationId);
+          // When degraded to retrieval_only, skip generation and return
+          // retrieval-only results.
+          if (degradationMode === 'retrieval_only') {
+            await emitAudit(deps, 'generation.degraded', {
+              reason: 'retrieval_only mode under overload',
+              contextCount: retrieved.value.length,
+            }, correlationId);
+            answer = {
+              text: `Retrieval-only mode (degraded under overload). Found ${retrieved.value.length} relevant results but generation is temporarily disabled.`,
+              citations: retrieved.value.map((r) => ({
+                sourceId: r.sourceId,
+                chunkId: r.chunk.id,
+                source: r.chunk.metadata.source,
+                ...(r.chunk.metadata.page !== undefined ? { page: r.chunk.metadata.page } : {}),
+                ...(r.chunk.metadata.section !== undefined ? { section: r.chunk.metadata.section } : {}),
+              })),
+              insufficientContext: false,
+              degradationMode,
+            };
+          } else {
+            // Audit: generation started.
+            await emitAudit(deps, 'generation.started', {
+              contextCount: retrieved.value.length,
+            }, correlationId);
 
-          const generated = await (deps.runtimeControls
-            ? deps.runtimeControls.execute(`generate:${correlationId}`, async () => {
-                return generateGroundedAnswer(
+            const generated = await (deps.runtimeControls
+              ? deps.runtimeControls.execute(`generate:${correlationId}`, async () => {
+                  return generateGroundedAnswer(
+                    { query, context: retrieved.value },
+                    {
+                      model: languageModel,
+                      ...(config.llm ? { expectedModel: config.llm.model } : {}),
+                      ...(config.llm?.timeoutMs ? { timeoutMs: config.llm.timeoutMs } : {}),
+                    },
+                  );
+                })
+              : generateGroundedAnswer(
                   { query, context: retrieved.value },
                   {
                     model: languageModel,
                     ...(config.llm ? { expectedModel: config.llm.model } : {}),
                     ...(config.llm?.timeoutMs ? { timeoutMs: config.llm.timeoutMs } : {}),
                   },
-                );
-              })
-            : generateGroundedAnswer(
-                { query, context: retrieved.value },
-                {
-                  model: languageModel,
-                  ...(config.llm ? { expectedModel: config.llm.model } : {}),
-                  ...(config.llm?.timeoutMs ? { timeoutMs: config.llm.timeoutMs } : {}),
-                },
-              ));
+                ));
 
-          if (!generated.ok) {
-            await emitAudit(deps, 'generation.error', {
-              issues: generated.issues.map((i) => ({ path: i.path, message: i.message })),
+            if (!generated.ok) {
+              await emitAudit(deps, 'generation.error', {
+                issues: generated.issues.map((i) => ({ path: i.path, message: i.message })),
+              }, correlationId);
+              sendError('generation_error', generated.issues.map((i) => `${i.path}: ${i.message}`).join('; '), 502);
+              return;
+            }
+
+            await emitAudit(deps, 'generation.completed', {
+              citationsCount: generated.value.citations.length,
+              insufficientContext: generated.value.insufficientContext,
             }, correlationId);
-            sendError('generation_error', generated.issues.map((i) => `${i.path}: ${i.message}`).join('; '), 502);
-            return;
+
+            answer = {
+              text: generated.value.text,
+              citations: generated.value.citations.map((c) => ({
+                sourceId: c.sourceId,
+                chunkId: c.chunkId,
+                source: c.source,
+                ...(c.page !== undefined ? { page: c.page } : {}),
+                ...(c.section !== undefined ? { section: c.section } : {}),
+              })),
+              insufficientContext: generated.value.insufficientContext,
+            };
           }
-
-          await emitAudit(deps, 'generation.completed', {
-            citationsCount: generated.value.citations.length,
-            insufficientContext: generated.value.insufficientContext,
-          }, correlationId);
-
-          answer = {
-            text: generated.value.text,
-            citations: generated.value.citations.map((c) => ({
-              sourceId: c.sourceId,
-              chunkId: c.chunkId,
-              source: c.source,
-              ...(c.page !== undefined ? { page: c.page } : {}),
-              ...(c.section !== undefined ? { section: c.section } : {}),
-            })),
-            insufficientContext: generated.value.insufficientContext,
-          };
         }
 
         metrics.increment('http_query');
@@ -886,12 +930,24 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
         const tenantCostBreakdown = deps.costTracker
           ? deps.costTracker.getTenantCostBreakdown()
           : [];
+        const alertEvaluations = deps.alertChecker
+          ? deps.alertChecker.evaluate(runtimeControlsSnapshot ?? {
+              concurrency: { active: 0, queued: 0, completed: 0, rejected: 0, timeouts: 0 },
+              circuitBreaker: { state: 'closed', failures: 0, successes: 0, totalCalls: 0, trips: 0 },
+              cache: { hits: 0, misses: 0, size: 0, maxSize: 0 },
+            })
+          : [];
         statusCode = 200;
         sendJson(200, {
           metrics: snapshot,
           cost: costSnapshot,
           tenantCostBreakdown,
           runtimeControls: runtimeControlsSnapshot,
+          degradation: {
+            mode: degradationMode,
+            config: deps.degradationConfig,
+          },
+          alerts: alertEvaluations,
         });
         return;
       }
