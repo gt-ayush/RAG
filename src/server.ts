@@ -334,7 +334,7 @@ function parseMultipartBody(body: string, boundary: string): Array<{
     if (!nameMatch) continue;
 
     const name = nameMatch[1] ?? '';
-    const filename = filenameMatch ? filenameMatch[1] ?? '' : '';
+    const filename = filenameMatch?.[1] ?? '';
     const content = Buffer.from(body, 'utf8');
 
     parts.push({ name, filename, content });
@@ -1194,7 +1194,7 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
 
         const parseResult = await parseSourceFileFromBuffer(fileContent, fileName);
         if (!parseResult.ok) {
-          const issues = (parseResult as unknown as { issues?: readonly { path: string; message: string }[] }).issues?.map((i) => i.message).join('; ') || 'unknown error';
+          const issues = parseResult.issues?.map((i) => i.message).join('; ') || 'unknown error';
           sendError('bad_request', `failed to parse document: ${issues}`, 400);
           return;
         }
@@ -1257,7 +1257,7 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
 
         // Build indexed records.
         const indexedRecords = chunks.map((chunk, i) => {
-          const embedding = embeddings[i];
+          const embedding = embeddings[i]!;
           if (!embedding) {
             throw new Error(`Missing embedding for chunk ${chunk.id}`);
           }
