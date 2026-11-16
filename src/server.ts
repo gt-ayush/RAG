@@ -29,6 +29,7 @@ import { decisionToAuthzComponents, makeAuthorizationPolicy } from './authorizat
 import { createStructuredLogger, type Logger, MetricsRecorder } from './observability.js';
 import { RateLimiter as GatewayRateLimiter, RuntimeControls } from './runtime-controls.js';
 import { checkResidency } from './erasure.js';
+import { CostMetricsTracker } from './cost-tracking.js';
 import * as http from 'http';
 
 /**
@@ -62,6 +63,8 @@ export interface ServerDependencies {
   residencyPolicy?: ResidencyPolicy;
   /** Optional runtime controls (concurrency, circuit breaker, cache) for load management. */
   runtimeControls?: RuntimeControls;
+  /** Optional cost tracker for per-tenant cost attribution. */
+  costTracker?: CostMetricsTracker;
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -670,6 +673,25 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
 
         metrics.increment('http_query');
         statusCode = 200;
+
+        // Track per-tenant cost attribution for the query.
+        if (deps.costTracker && tenantId) {
+          const embeddingTokenCount = Math.ceil(query.length / 4);
+          const generationTokenCount = answer.text
+            ? Math.ceil(answer.text.length / 4)
+            : 0;
+          const embeddingCost = (embeddingTokenCount / 1000) * 0.10; // $0.10 per 1K tokens
+          const generationCost =
+            (generationTokenCount / 1000) * 1.50; // $1.50 per 1K output tokens
+          deps.costTracker.trackQueryWithTenant(
+            tenantId,
+            embeddingCost,
+            0, // retrieval cost (vector reads not separately metered in baseline)
+            generationCost,
+            embeddingTokenCount + generationTokenCount,
+          );
+        }
+
         sendJson(200, {
           answer,
           retrieved: retrieved.value.map((r) => ({
@@ -838,6 +860,38 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
           tenantId,
           region,
           matchedRule: residency.matchedRule,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && req.url === '/metrics') {
+        const snapshot = metrics.snapshot();
+        const costSnapshot = deps.costTracker
+          ? deps.costTracker.snapshot()
+          : {
+              totalCost: 0,
+              totalEmbeddingCost: 0,
+              totalGenerationCost: 0,
+              totalIndexingCost: 0,
+              totalRetrievalCost: 0,
+              costPerQuery: 0,
+              costPerIngestion: 0,
+              queryCount: 0,
+              ingestionCount: 0,
+              totalTokenCount: 0,
+            };
+        const runtimeControlsSnapshot = deps.runtimeControls
+          ? deps.runtimeControls.snapshot()
+          : undefined;
+        const tenantCostBreakdown = deps.costTracker
+          ? deps.costTracker.getTenantCostBreakdown()
+          : [];
+        statusCode = 200;
+        sendJson(200, {
+          metrics: snapshot,
+          cost: costSnapshot,
+          tenantCostBreakdown,
+          runtimeControls: runtimeControlsSnapshot,
         });
         return;
       }
