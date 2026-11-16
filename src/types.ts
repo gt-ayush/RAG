@@ -246,6 +246,47 @@ export interface LLMProviderConfig {
   timeoutMs?: number;
 }
 
+/** Filter criteria for querying document metadata. */
+export interface DocumentMetadataFilter {
+  /** Tenant scope to filter by. */
+  tenantId?: string;
+  /** Source identifier to filter by (e.g., filename, URL). */
+  source?: string;
+  /** Document status to filter by (e.g., 'ingested', 'indexed', 'failed', 'deleted'). */
+  status?: string;
+  /** Specific document IDs to include. */
+  documentIds?: readonly DocumentId[];
+}
+
+/** Result of a document metadata store operation. */
+export interface DocumentMetadataStoreResult {
+  /** Whether the operation succeeded. */
+  ok: boolean;
+  /** Number of documents affected. */
+  count: number;
+  /** Non-sensitive issue details when ok is false. */
+  issues?: readonly { path: string; message: string }[];
+}
+
+/** Storage contract for document metadata, separate from vector embeddings.
+ * Enables efficient metadata queries without loading vector data.
+ */
+export interface DocumentMetadataStore {
+  readonly kind: string;
+  /** Store or update document metadata. Idempotent by documentId. */
+  upsert(documents: readonly DocumentMetadata[]): Promise<Result<{ count: number }>>;
+  /** Query documents with optional filtering. */
+  query(filters?: DocumentMetadataFilter): Promise<Result<readonly DocumentMetadata[]>>;
+  /** Delete a document and its metadata by document ID. */
+  deleteByDocumentId(documentId: DocumentId): Promise<Result<{ count: number }>>;
+  /** Delete multiple documents by ID. */
+  deleteByDocumentIds(documentIds: readonly DocumentId[]): Promise<Result<{ count: number }>>;
+  /** Count documents matching optional filters. */
+  count(filters?: DocumentMetadataFilter): Promise<number>;
+  /** Get all documents (for admin/debugging). */
+  getAll(): readonly DocumentMetadata[];
+}
+
 export interface PipelineConfig {
   llm: {
     apiKey: string;
