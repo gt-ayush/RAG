@@ -214,6 +214,15 @@ export class CostMetricsTracker {
   private generationTracker: GenerationCostTracker;
   private ingestionTracker: IngestionCostTracker;
   private queryTracker: QueryCostTracker;
+  /** Per-tenant query cost breakdown, keyed by tenantId. */
+  private tenantCosts = new Map<string, {
+    totalCost: number;
+    totalEmbeddingCost: number;
+    totalGenerationCost: number;
+    totalRetrievalCost: number;
+    totalTokenCount: number;
+    queryCount: number;
+  }>();
 
   constructor(config: CostConfig) {
     this.embeddingTracker = new EmbeddingCostTracker(config);
@@ -236,6 +245,65 @@ export class CostMetricsTracker {
 
   getQueryTracker(): QueryCostTracker {
     return this.queryTracker;
+  }
+
+  /**
+   * Tracks a query cost with tenant attribution.
+   */
+  trackQueryWithTenant(
+    tenantId: string,
+    embeddingCost: number,
+    retrievalCost: number,
+    generationCost: number,
+    tokenCount: number,
+  ): QueryCost {
+    const result = this.queryTracker.track(
+      embeddingCost,
+      retrievalCost,
+      generationCost,
+    );
+
+    let tenant = this.tenantCosts.get(tenantId);
+    if (!tenant) {
+      tenant = {
+        totalCost: 0,
+        totalEmbeddingCost: 0,
+        totalGenerationCost: 0,
+        totalRetrievalCost: 0,
+        totalTokenCount: 0,
+        queryCount: 0,
+      };
+      this.tenantCosts.set(tenantId, tenant);
+    }
+    tenant.totalCost += result.totalCost;
+    tenant.totalEmbeddingCost += embeddingCost;
+    tenant.totalGenerationCost += generationCost;
+    tenant.totalRetrievalCost += retrievalCost;
+    tenant.totalTokenCount += tokenCount;
+    tenant.queryCount += 1;
+
+    return result;
+  }
+
+  /**
+   * Returns per-tenant cost breakdowns sorted by total cost descending.
+   */
+  getTenantCostBreakdown(): TenantCostBreakdown[] {
+    const breakdowns: TenantCostBreakdown[] = [];
+    for (const [tenantId, tenant] of this.tenantCosts.entries()) {
+      breakdowns.push({
+        tenantId,
+        totalCost: tenant.totalCost,
+        totalEmbeddingCost: tenant.totalEmbeddingCost,
+        totalGenerationCost: tenant.totalGenerationCost,
+        totalRetrievalCost: tenant.totalRetrievalCost,
+        queryCount: tenant.queryCount,
+        totalTokenCount: tenant.totalTokenCount,
+        costPerQuery: tenant.queryCount > 0 ? tenant.totalCost / tenant.queryCount : 0,
+      });
+    }
+    breakdowns.sort((a, b) => b.totalCost - a.totalCost);
+    return breakdowns;
   }
 
   snapshot(): CostMetrics {
@@ -268,6 +336,28 @@ export class CostMetricsTracker {
       totalTokenCount,
     };
   }
+}
+
+/**
+ * Per-tenant cost breakdown for cost attribution and capacity planning.
+ */
+export interface TenantCostBreakdown {
+  /** Tenant identifier. */
+  tenantId: string;
+  /** Total cost attributed to this tenant (USD). */
+  totalCost: number;
+  /** Total embedding cost attributed to this tenant (USD). */
+  totalEmbeddingCost: number;
+  /** Total generation cost attributed to this tenant (USD). */
+  totalGenerationCost: number;
+  /** Total retrieval cost attributed to this tenant (USD). */
+  totalRetrievalCost: number;
+  /** Total number of queries attributed to this tenant. */
+  queryCount: number;
+  /** Total token count attributed to this tenant. */
+  totalTokenCount: number;
+  /** Average cost per query for this tenant (USD). */
+  costPerQuery: number;
 }
 
 /**
