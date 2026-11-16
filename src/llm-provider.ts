@@ -117,6 +117,93 @@ export class HttpLLMProvider implements LanguageModel {
       clearTimeout(timer);
     }
   }
+
+  async *streamGenerate(prompt: GroundedPrompt): AsyncIterableIterator<string> {
+    const messages: ChatMessage[] = [
+      { role: 'system', content: prompt.system },
+      { role: 'user', content: `${prompt.evidence}\n\n---\n\nQuestion: ${prompt.user}` },
+    ];
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+
+    try {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          ...(this.apiKey !== undefined ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages,
+          temperature: 0,
+          stream: true,
+        } as ChatCompletionsRequest),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`provider returned ${response.status}: ${errorBody}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('provider returned no response body');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed || !trimmed.startsWith('data:')) continue;
+
+            const dataStr = trimmed.slice(5).trim();
+            if (dataStr === '[DONE]') continue;
+
+            let parsed: unknown;
+            try {
+              parsed = JSON.parse(dataStr);
+            } catch {
+              continue;
+            }
+
+            const typed = parsed as {
+              choices?: readonly { delta?: { content?: unknown } }[];
+            } | undefined;
+            const delta = typed?.choices?.[0]?.delta;
+            const content =
+              delta && typeof delta === 'object' && 'content' in delta
+                ? (delta as { content?: unknown }).content
+                : undefined;
+
+            if (typeof content === 'string' && content.length > 0) {
+              yield content;
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      if (error instanceof Error) throw error;
+      throw new Error('LLM provider stream failed');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }
 
 /**
