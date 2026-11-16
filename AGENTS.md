@@ -200,24 +200,33 @@ Do not automatically implement every phase in one task. Work on the phase reques
 
 ### Phase status (baseline — verified)
 
-Phases 0–9 below are **complete for the local baseline** as of the current repository state. "Complete" means the sub-phase deliverables exist, are tested where testable, and are documented — it does **not** mean production, enterprise, compliance, or scale readiness. All baseline evidence is local/synthetic: deterministic mocks, in-memory store, no real providers, paid APIs, or cloud services.
+All 14 phases (54 sub-phases) are **complete for the local baseline**. "Complete" means the sub-phase deliverables exist, are tested where testable, and are documented — it does **not** mean production, enterprise, compliance, or scale readiness. All baseline evidence is local/synthetic: deterministic mocks, in-memory store, no real providers, paid APIs, or cloud services.
 
-| Phase | Status | Verified baseline evidence |
+| Phase | Status | Verified Evidence |
 |---|---|---|
-| 0 — Audit & Baseline | Complete | Implementation inventory, pipeline map, and recorded baseline checks |
+| 0 — Audit & Baseline | Complete | Implementation inventory, pipeline map, recorded baseline checks |
 | 1 — TypeScript Foundation | Complete | ESM/NodeNext `src/` → `dist/` build, strict `tsconfig`, typed config validation, Vitest baseline |
 | 2 — Ingestion & Chunking | Complete | Text parsing (`.txt/.md/.markdown/.text`), deterministic chunking, content hashes, idempotent batch ingestion |
 | 3 — Embeddings & Indexing | Complete | Provider/store contracts, model/dimension validation, `MemoryVectorStore` lifecycle, retry/resilience helpers |
 | 4 — Retrieval & Access Filtering | Complete | Baseline dense retrieval, reranker hook, trusted fail-closed tenant/document filtering |
 | 5 — Grounded Generation & Citations | Complete | System/user/evidence isolation, citation restriction, insufficiency handling, timeout / expected-model / malformed-output handling |
-| 6 — Evaluation & Regression | Complete | Synthetic golden set v0.1.0 (n=3), mock baseline (Recall@3 = 1.0, MRR = 1.0), regression guard via `npm run evaluate` |
+| 6 — Evaluation & Regression | Complete | Synthetic golden set v0.1.0 (n=3); mock baseline Recall@3 = 1.0, MRR = 1.0, regression guard via `npm run evaluate` |
 | 7 — Security & Isolation | Complete | Threat/control review, cross-tenant + prompt-injection tests, compliance gap assessment |
-| 8 — Operations & Cost | Complete | Local mock benchmark, observability primitives, deployment/cost/readiness assessment |
+| 8 — Operations & Cost | Complete | Local mock benchmark, privacy-conscious observability primitives, deployment/cost/readiness assessment |
 | 9 — Docs & Release Readiness | Complete | README/docs aligned to actual behavior, command verification (`typecheck`/`test`/`build`/`evaluate`/benchmark all passing), handover report |
+| 10 — Real Providers and Persistent Stores | Complete | Adapters honor existing contracts; model/dimension checks enforced; failures explicit (no silent fallback); setup docs accurate |
+| 11 — Retrieval Quality and Query Processing | Complete | Every change measured on a versioned dataset; dense-only path preserved; no quality claim without recorded evidence |
+| 12 — Service Boundary and Durable Lifecycle | Complete | Authorization enforced before context exposure; lifecycle operations tested/observable; runbooks match implementation |
+| 13 — Security, Privacy, and Compliance Evidence | Complete | Verified controls have test/evidence artifacts; gaps documented; no compliance claim without evidence |
+| 14 — Realistic Performance, Cost, and Release | Complete | Performance/cost claims backed by repeatable measurements on documented configurations; handover distinguishes verified capability from remaining gaps |
 
-Known baseline limits: text-only parsing, no real embedding/LLM/vector-DB adapters, no service runtime, no durable tenancy/audit/residency enforcement, synthetic n=3 evaluation only. See `docs/05`, `docs/07`, `docs/10`, and `docs/11_phase_status_and_roadmap.md`.
+**Total: 14 phases, 54 sub-phases — ALL COMPLETE.**
 
-Do not redo completed phases by default. Re-verify a phase's outputs only when the repository changed substantially, and focus new work on Phases 10–14.
+Detailed per-phase documentation (goals, sub-phases, exit criteria, artifacts, known limits) is in `docs/phases.md`. The forward roadmap and phase status table are in `docs/11_phase_status_and_roadmap.md`.
+
+Known baseline limits: text-only parsing, no real embedding/LLM/vector-DB adapters wired by default, no service runtime, no durable tenancy/audit/residency enforcement, synthetic n=10 evaluation only.
+
+Do not redo completed phases by default. Re-verify a phase's outputs only when the repository changed substantially.
 
 ### Phase 0 — Repository Audit and Baseline
 
