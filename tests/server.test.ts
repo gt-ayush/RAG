@@ -4,6 +4,8 @@ import { createHttpServer, setupGracefulShutdown, MAX_REQUEST_BODY_SIZE } from '
 import type { ServerDependencies } from '../src/server.js';
 import { RateLimiter } from '../src/runtime-controls.js';
 import { createAuditLog } from '../src/audit.js';
+import { createErasureService, createResidencyPolicy } from '../src/erasure.js';
+import { MemoryVectorStore } from '../src/memory-store.js';
 import type { AuditEventType } from '../src/types.js';
 import { makeAuthorizationPolicy } from '../src/authorization.js';
 import type {
@@ -550,5 +552,148 @@ describe('HTTP server boundary', () => {
     expect(types).toContain('generation.insufficient_context');
     expect(types).not.toContain('generation.started');
     expect(types).not.toContain('generation.completed');
+  });
+
+  it('POST /erasure succeeds and emits audit events', async () => {
+    const auditLog = createAuditLog();
+    const store = new MemoryVectorStore(2);
+    await store.upsert([
+      {
+        chunk: {
+          id: 'c1',
+          documentId: 'doc-1',
+          content: 'content',
+          index: 0,
+          metadata: { documentId: 'doc-1', source: 'doc-1.txt', chunkId: 'c1', chunkIndex: 0 },
+        },
+        embedding: { chunkId: 'c1', model: 'test', dimensions: 2, vector: [1, 0] },
+      },
+    ]);
+
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a', roles: ['admin'] },
+      erasureService: createErasureService(store),
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/erasure', {
+      documentId: 'doc-1',
+      tenantId: 'tenant-a',
+      legalBasis: 'gdpr-article-17',
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: true, documentId: 'doc-1' });
+
+    const events = await auditLog.read();
+    const types = events.map((e) => e.type);
+    expect(types).toContain('erasure.requested');
+    expect(types).toContain('erasure.completed');
+  });
+
+  it('POST /erasure rejects missing documentId with 400', async () => {
+    const auditLog = createAuditLog();
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      erasureService: createErasureService(new MemoryVectorStore(2)),
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/erasure', { tenantId: 'tenant-a' });
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: { code: 'validation_error' } });
+  });
+
+  it('POST /erasure returns 401 when no trusted principal', async () => {
+    const auditLog = createAuditLog();
+    const { port, server } = await startTestServer({
+      auditLog,
+      erasureService: createErasureService(new MemoryVectorStore(2)),
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/erasure', {
+      documentId: 'doc-1',
+      tenantId: 'tenant-a',
+    });
+    expect(res.status).toBe(401);
+    expect(res.body).toMatchObject({ error: { code: 'unauthorized' } });
+
+    const events = await auditLog.read();
+    const requested = events.filter((e) => e.type === 'erasure.requested');
+    expect(requested).toHaveLength(1);
+    expect(requested[0].payload.reason).toBe('missing trusted tenant identity');
+  });
+
+  it('POST /erasure returns 503 when erasure service not configured', async () => {
+    const auditLog = createAuditLog();
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/erasure', {
+      documentId: 'doc-1',
+      tenantId: 'tenant-a',
+    });
+    expect(res.status).toBe(503);
+    expect(res.body).toMatchObject({ error: { code: 'unavailable' } });
+  });
+
+  it('POST /erasure returns 502 when erasure cascade fails', async () => {
+    const auditLog = createAuditLog();
+    const store = new MemoryVectorStore(2);
+    const originalDelete = store.deleteByDocumentId.bind(store);
+    vi.spyOn(store, 'deleteByDocumentId').mockRejectedValueOnce(new Error('store down'));
+
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a', roles: ['admin'] },
+      erasureService: createErasureService(store),
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/erasure', {
+      documentId: 'doc-1',
+      tenantId: 'tenant-a',
+    });
+
+    expect(res.status).toBe(502);
+    expect(res.body).toMatchObject({ error: { code: 'unavailable' } });
+
+    vi.spyOn(store, 'deleteByDocumentId').mockImplementation(originalDelete);
+  });
+
+  it('POST /erasure enforces residency via policy', async () => {
+    const auditLog = createAuditLog();
+    const { createResidencyPolicy, checkResidency } = await import('../src/erasure.js');
+    const policy = createResidencyPolicy([
+      { region: 'eu-west-1', tenantId: 'tenant-a' },
+    ]);
+
+    const { port, server } = await startTestServer({
+      auditLog,
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      residencyPolicy: policy,
+      erasureService: createErasureService(new MemoryVectorStore(2)),
+    });
+    servers.push(server);
+
+    // vectorDb URL defaults to us-east-1, so residency check for us-east-1 vs eu-west-1 rule
+    // will deny since target region doesn't match configured region.
+    const res = await request(port, 'POST', '/erasure', {
+      documentId: 'doc-1',
+      tenantId: 'tenant-a',
+    });
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ error: { code: 'forbidden' } });
+
+    const events = await auditLog.read();
+    const requested = events.filter((e) => e.type === 'erasure.requested');
+    expect(requested).toHaveLength(1);
+    expect(requested[0].payload.reason).toContain('residency denied');
   });
 });
