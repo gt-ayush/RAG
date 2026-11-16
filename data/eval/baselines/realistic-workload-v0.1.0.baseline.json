@@ -1,0 +1,83 @@
+{
+  "runId": "realistic-workload-v0.1.0-baseline-2026-11-16",
+  "measuredAt": "2026-11-16T13:04:46.486Z",
+  "phase": "19.1 Realistic Workload Baselines",
+  "dataset": {
+    "path": "data/eval/golden-v0.2.0.json",
+    "version": "0.2.0",
+    "name": "rag-golden-representative-smoke",
+    "cases": 10
+  },
+  "environment": {
+    "nodeVersion": "v26.13.1",
+    "platform": "linux",
+    "arch": "x64",
+    "cpus": 12,
+    "totalMemMB": 15676,
+    "freeMemMB": 10709
+  },
+  "configuration": {
+    "chunking": { "chunkSize": 200, "chunkOverlap": 0 },
+    "embedding": { "provider": "deterministic-mock", "model": "mock-embed-v1", "dimensions": 8 },
+    "vectorStore": { "kind": "memory" },
+    "retrieval": { "topK": 3, "filters": null, "reranker": null, "denseOnly": true },
+    "generation": { "provider": "deterministic-mock", "model": "mock-lm-v1" },
+    "workload": { "iterations": 10, "concurrency": 1, "topK": 3 }
+  },
+  "usingRealProviders": false,
+  "results": {
+    "ingestion": {
+      "chunks": 10,
+      "upserted": 10,
+      "latencyMs": 0.58
+    },
+    "latencyMs": {
+      "retrieval": {
+        "p50": 0.019,
+        "p95": 0.058,
+        "p99": 0.082,
+        "mean": 0.029,
+        "stdDev": 0.057,
+        "samples": 100
+      },
+      "generation": {
+        "p50": 0.005,
+        "p95": 0.017,
+        "p99": 0.029,
+        "mean": 0.007,
+        "stdDev": 0.006,
+        "samples": 100
+      }
+    },
+    "throughput": {
+      "approxQueriesPerSecond": 27630,
+      "wallMs": 3.6,
+      "queries": 100
+    },
+    "failures": {
+      "count": 0,
+      "rate": 0
+    }
+  },
+  "cost": {
+    "measured": false,
+    "reason": "no external paid providers/services used (deterministic local mocks)"
+  },
+  "sloEvaluation": {
+    "retrievalP95Under800ms": true,
+    "zeroFailures": true,
+    "note": "Measured on deterministic local mocks; SLOs are illustrative only and not evidence of production readiness."
+  },
+  "limitations": [
+    "Local in-memory micro-benchmark with deterministic mocks; not representative of real provider/network/storage latency, throughput, or failure modes.",
+    "Real provider endpoints not configured (set EMBEDDING_BASE_URL, VECTOR_DB_URL, LLM_BASE_URL to measure against real services).",
+    "Not evidence of production SLOs, scalability, availability, or cost.",
+    "SLO thresholds below are illustrative targets, not certified production guarantees."
+  ],
+  "sloTargets": {
+    "retrievalP95Ms": 800,
+    "generationP95Ms": 800,
+    "maxFailureRate": 0,
+    "uptimeTarget": 99.9
+  }
+}
