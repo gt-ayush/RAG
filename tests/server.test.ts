@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as http from 'http';
-import { createHttpServer } from '../src/server.js';
+import { createHttpServer, setupGracefulShutdown, MAX_REQUEST_BODY_SIZE } from '../src/server.js';
 import type { ServerDependencies } from '../src/server.js';
 import { makeAuthorizationPolicy } from '../src/authorization.js';
 import type { Chunk, Embedding, ModelGeneration, RetrievalResult } from '../src/types.js';
@@ -294,5 +294,66 @@ describe('HTTP server boundary', () => {
     const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
     expect(res.status).toBe(401);
     expect(res.body).toMatchObject({ error: { code: 'unauthorized' } });
+  });
+
+  it('POST /query with oversized body returns 413', async () => {
+    const { port, server } = await startTestServer();
+    servers.push(server);
+
+    const oversized = 'x'.repeat(Number(MAX_REQUEST_BODY_SIZE) + 1);
+    const res = await request(port, 'POST', '/query', undefined, JSON.stringify({ query: oversized }));
+    expect(res.status).toBe(413);
+    expect(res.body).toMatchObject({ error: { code: 'bad_request' } });
+  });
+
+  it('setupGracefulShutdown stop() closes the server', async () => {
+    const deps: ServerDependencies = {
+      config: {
+        llm: { apiKey: 'test-key', model: 'test-lm' },
+        vectorDb: { url: 'http://localhost:6333' },
+        embedding: { model: 'test-embed' },
+      },
+      embeddingProvider: undefined as unknown as EmbeddingProvider,
+      vectorStore: undefined as unknown as VectorStore,
+      languageModel: undefined as unknown as LanguageModel,
+      logger: createStructuredLogger(),
+      metrics: new MetricsRecorder(),
+    };
+
+    const server = createHttpServer(deps);
+    await new Promise((resolve) => server.listen(0, resolve));
+    const { stop, signal } = setupGracefulShutdown(server, { timeoutMs: 1000 });
+    expect(signal.aborted).toBe(false);
+
+    await stop();
+    expect(signal.aborted).toBe(true);
+
+    // Server should no longer accept connections.
+    await new Promise<void>((resolve, reject) => {
+      server.close(() => resolve());
+      server.on('error', reject);
+    });
+  });
+
+  it('setupGracefulShutdown is idempotent', async () => {
+    const deps: ServerDependencies = {
+      config: {
+        llm: { apiKey: 'test-key', model: 'test-lm' },
+        vectorDb: { url: 'http://localhost:6333' },
+        embedding: { model: 'test-embed' },
+      },
+      embeddingProvider: undefined as unknown as EmbeddingProvider,
+      vectorStore: undefined as unknown as VectorStore,
+      languageModel: undefined as unknown as LanguageModel,
+      logger: createStructuredLogger(),
+      metrics: new MetricsRecorder(),
+    };
+
+    const server = createHttpServer(deps);
+    await new Promise((resolve) => server.listen(0, resolve));
+    const { stop } = setupGracefulShutdown(server, { timeoutMs: 1000 });
+
+    await stop();
+    await stop(); // second call should not throw
   });
 });
