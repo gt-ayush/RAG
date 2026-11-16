@@ -64,6 +64,90 @@ export interface ErrorResponseBody {
   };
 }
 
+/** Maximum request body size in bytes allowed for /query. */
+export const MAX_REQUEST_BODY_SIZE = 1_024 * 1_024; // 1 MiB
+
+/**
+ * Options for graceful shutdown of an HTTP server.
+ */
+export interface GracefulShutdownOptions {
+  /** Maximum time in ms to wait for in-flight requests to drain before forcing close. */
+  timeoutMs?: number;
+  /** Signals that trigger shutdown (default: SIGTERM, SIGINT). */
+  signals?: readonly NodeJS.Signals[];
+  /** Optional callback invoked after the server has closed. */
+  onStop?: () => void;
+}
+
+/**
+ * Result of setting up graceful shutdown.
+ */
+export interface GracefulShutdownHandle {
+  /** Programmatically trigger shutdown; resolves once the server has closed. */
+  stop: () => Promise<void>;
+  /** The abort signal that becomes aborted once shutdown is requested. */
+  signal: AbortSignal;
+}
+
+/**
+ * Registers signal handlers (SIGTERM/SIGINT by default) on *server* so that
+ * receiving a termination signal stops accepting new connections, drains
+ * in-flight requests up to *timeoutMs*, then closes the server.
+ *
+ * Returns a handle with a programmatic `stop()` and an AbortSignal that pipeline
+ * code can observe to cancel in-flight work. Safe to call multiple times; only
+ * the first invocation proceeds.
+ *
+ * @example
+ * const server = createHttpServer(deps);
+ * const { stop, signal } = setupGracefulShutdown(server, { timeoutMs: 5000 });
+ * server.listen(port);
+ * // pipeline work can listen to `signal` to stop accepting new tasks.
+ */
+export function setupGracefulShutdown(
+  server: http.Server,
+  options: GracefulShutdownOptions = {},
+): GracefulShutdownHandle {
+  const { timeoutMs = 5000, signals = ['SIGTERM', 'SIGINT'], onStop } = options;
+
+  const controller = new AbortController();
+  let settled = false;
+  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const stop = async (): Promise<void> => {
+    if (settled) return;
+    settled = true;
+    controller.abort();
+
+    // Stop accepting new connections.
+    server.close(() => {
+      if (onStop) onStop();
+    });
+
+    // Force-close after the drain timeout.
+    if (timeoutMs > 0) {
+      closeTimer = setTimeout(() => {
+        server.close();
+        if (closeTimer) clearTimeout(closeTimer);
+      }, timeoutMs);
+    }
+  };
+
+  const handleSignal = async (signal: NodeJS.Signals) => {
+    await stop();
+  };
+
+  for (const signal of signals) {
+    try {
+      process.on(signal, handleSignal);
+    } catch {
+      // Signal not supported on this platform; ignore.
+    }
+  }
+
+  return { stop, signal: controller.signal };
+}
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -187,8 +271,15 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
 
       if (req.method === 'POST' && req.url === '/query') {
         let raw = '';
+        let receivedBytes = 0;
         for await (const chunk of req) {
-          raw += chunk as string;
+          const data = chunk as string;
+          receivedBytes += Buffer.byteLength(data);
+          if (receivedBytes > MAX_REQUEST_BODY_SIZE) {
+            sendError('bad_request', 'request body too large', 413);
+            return;
+          }
+          raw += data;
         }
 
         const parsed = parseJsonBody<QueryRequestBody>(raw);
