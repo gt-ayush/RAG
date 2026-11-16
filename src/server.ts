@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { EmbeddingProvider } from './embeddings.js';
 import type { LanguageModel } from './generate.js';
 import type {
@@ -8,6 +9,8 @@ import type {
   AuditLog,
   DegradationConfig,
   DegradationMode,
+  Document,
+  DocumentMetadata,
   ErasureRequest,
   ErasureService,
   PipelineConfig,
@@ -19,6 +22,7 @@ import type {
   TenantQuotaCheckResult,
 } from './types.js';
 import type { VectorStore } from './vector-store.js';
+import * as path from 'node:path';
 import type {
   AuthorizationContext,
   AuthorizationEvaluator,
@@ -33,6 +37,8 @@ import { RateLimiter as GatewayRateLimiter, RuntimeControls } from './runtime-co
 import { checkResidency } from './erasure.js';
 import { CostMetricsTracker } from './cost-tracking.js';
 import { AlertChecker } from './alert-checker.js';
+import { IngestionLifecycleTracker } from './ingestion-lifecycle.js';
+import { parseSourceFile, chunkDocument } from './ingest.js';
 import * as http from 'http';
 
 /**
@@ -72,6 +78,8 @@ export interface ServerDependencies {
   degradationConfig?: DegradationConfig;
   /** Optional alert checker for runtime metric thresholds. */
   alertChecker?: AlertChecker;
+  /** Optional ingestion lifecycle tracker for durable document lifecycle management. */
+  ingestionLifecycleTracker?: IngestionLifecycleTracker;
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -293,6 +301,197 @@ function resolveTenantId(
     return body.tenantId;
   }
   return undefined;
+}
+
+/**
+ * Parses a multipart/form-data body into parts.
+ * Each part has a name, optional filename, and content (Buffer).
+ */
+function parseMultipartBody(body: string, boundary: string): Array<{
+  name: string;
+  filename?: string;
+  content: Buffer;
+}> {
+  const parts: Array<{
+    name: string;
+    filename?: string;
+    content: Buffer;
+  }> = [];
+  const delimiter = `--${boundary}`;
+  const sections = body.split(`--${boundary}`);
+
+  for (let i = 1; i < sections.length - 1; i++) {
+    const section = sections[i]!;
+    const headerEnd = section.indexOf('\r\n\r\n');
+    if (headerEnd === -1) continue;
+
+    const headers = section.slice(0, headerEnd);
+    const body = section.slice(headerEnd + 4).replace(/\r\n$/, '');
+
+    const nameMatch = headers.match(/name="([^"]*)"/);
+    const filenameMatch = headers.match(/filename="([^"]*)"/);
+
+    if (!nameMatch) continue;
+
+    const name = nameMatch[1] ?? '';
+    const filename = filenameMatch ? filenameMatch[1] ?? '' : '';
+    const content = Buffer.from(body, 'utf8');
+
+    parts.push({ name, filename, content });
+  }
+
+  return parts;
+}
+
+/**
+ * Parses HTML content into plain text by stripping tags.
+ */
+function parseHtml(content: string): string {
+  return content
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Parses JSON content into plain text by extracting all string values.
+ */
+function parseJson(content: string): string {
+  try {
+    const parsed = JSON.parse(content);
+    return extractStringsFromJson(parsed);
+  } catch {
+    throw new Error('invalid JSON');
+  }
+}
+
+function extractStringsFromJson(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map((v) => extractStringsFromJson(v)).filter(Boolean).join(' ');
+  if (value && typeof value === 'object') {
+    return Object.values(value).map((v) => extractStringsFromJson(v)).filter(Boolean).join(' ');
+  }
+  return '';
+}
+
+/**
+ * Parses CSV content into plain text by joining field values.
+ */
+function parseCsv(content: string): string {
+  const lines = content.split('\n');
+  const rows = lines.map((line) => {
+    const fields: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        fields.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    fields.push(current);
+    return fields.join(' ');
+  });
+  return rows.filter((r) => r.trim().length > 0).join(' ');
+}
+
+/**
+ * Parses PDF content into plain text by extracting text from PDF content streams.
+ */
+function parsePdf(content: Buffer): string {
+  const text = content.toString('latin1');
+  const textParts: string[] = [];
+  const streamRegex = /stream\r?\n([\s\S]*?)endstream/g;
+  let match: RegExpExecArray | null;
+  while ((match = streamRegex.exec(text)) !== null) {
+    const streamContent = match[1] ?? '';
+    const textMatches = streamContent.match(/\(([^)]*)\)/g) || [];
+    for (const m of textMatches) {
+      const t = m.slice(1, -1);
+      if (t.length > 0) {
+        textParts.push(t);
+      }
+    }
+  }
+  return textParts.join(' ');
+}
+
+/**
+ * Builds metadata for a document.
+ */
+function buildMetadata(fileName: string, content: string): DocumentMetadata {
+  const resolved = path.resolve(fileName);
+  return {
+    documentId: resolved,
+    source: resolved,
+    contentHash: createHash('sha256').update(content, 'utf8').digest('hex'),
+  };
+}
+
+/**
+ * Parses a source file from an in-memory buffer.
+ * Supports .txt, .md, .markdown, .text, .html, .htm, .json, .csv, .pdf.
+ */
+async function parseSourceFileFromBuffer(
+  contentBuffer: Buffer,
+  fileName: string,
+): Promise<{
+  ok: true;
+  value: { document: import('./types.js').Document; contentHash: string };
+} | { ok: false; issues: readonly { path: string; message: string }[] }> {
+  const ext = path.extname(fileName).toLowerCase();
+  const content = contentBuffer.toString('utf8');
+  let text: string;
+
+  switch (ext) {
+    case '.html':
+    case '.htm':
+      text = parseHtml(content);
+      break;
+    case '.json':
+      text = parseJson(content);
+      break;
+    case '.csv':
+      text = parseCsv(content);
+      break;
+    case '.pdf':
+      text = parsePdf(contentBuffer);
+      break;
+    default:
+      text = content;
+  }
+
+  if (content.trim().length === 0) {
+    return {
+      ok: false,
+      issues: [{ path: fileName, message: 'document is empty or contains only whitespace' }],
+    };
+  }
+
+  const metadata = buildMetadata(fileName, content);
+  const document: Document = {
+    id: metadata.documentId,
+    content,
+    metadata,
+  };
+
+  return {
+    ok: true,
+    value: { document, contentHash: metadata.contentHash ?? '' },
+  };
 }
 
 /**
@@ -782,7 +981,7 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
           tenantId: validated.value.tenantId,
         }, correlationId);
 
-        const streamTenantId = resolveTenantId(req, validated.value, deps);
+        const streamTenantId = resolveTenantId(req, validated.value, deps) || '';
 
         if (deps.rateLimiter && streamTenantId) {
           if (!deps.rateLimiter.allow(streamTenantId)) {
@@ -960,6 +1159,229 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
         }, correlationId);
 
         sendEvent('done', {});
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/documents') {
+        let raw = '';
+        let receivedBytes = 0;
+        for await (const chunk of req) {
+          const data = chunk as string;
+          receivedBytes += Buffer.byteLength(data);
+          if (receivedBytes > MAX_REQUEST_BODY_SIZE) {
+            sendError('bad_request', 'request body too large', 413);
+            return;
+          }
+          raw += data;
+        }
+
+        const boundaryMatch = raw.match(/boundary=([^\s;]+)/);
+        if (!boundaryMatch) {
+          sendError('bad_request', 'missing multipart boundary', 400);
+          return;
+        }
+        const boundary = boundaryMatch[1] ?? '';
+
+        const parts = parseMultipartBody(raw, boundary);
+        const filePart = parts.find((p) => p.name === 'file');
+        if (!filePart) {
+          sendError('bad_request', 'missing file field', 400);
+          return;
+        }
+
+        const fileName = filePart.filename || 'uploaded-document';
+        const fileContent = filePart.content;
+
+        const parseResult = await parseSourceFileFromBuffer(fileContent, fileName);
+        if (!parseResult.ok) {
+          const issues = (parseResult as unknown as { issues?: readonly { path: string; message: string }[] }).issues?.map((i) => i.message).join('; ') || 'unknown error';
+          sendError('bad_request', `failed to parse document: ${issues}`, 400);
+          return;
+        }
+
+        const { document: doc, contentHash } = parseResult.value;
+
+        // Resolve trusted tenant identity (authoritative; never from client input).
+        const tenantId = deps.authorizationPrincipal?.tenantId ?? '';
+        if (!tenantId) {
+          await emitAudit(deps, 'ingestion.requested', {
+            documentId: doc.id,
+            reason: 'missing trusted tenant identity',
+          });
+          sendError('unauthorized', 'missing trusted principal', 401);
+          return;
+        }
+
+        // Enforce residency before ingestion if a policy is configured.
+        if (deps.residencyPolicy) {
+          const rule: ResidencyRule = {
+            region: resolveRegionFromConfig(deps.config),
+            tenantId,
+          };
+          const residency = await checkResidency(
+            deps.residencyPolicy,
+            rule,
+            rule.region,
+            tenantId,
+          );
+          if (!residency.allowed) {
+            await emitAudit(deps, 'ingestion.rejected', {
+              documentId: doc.id,
+              tenantId,
+              reason: `residency denied: ${residency.reason}`,
+            });
+            sendError('forbidden', residency.reason, 403);
+            return;
+          }
+        }
+
+        // Chunk the document.
+        const chunked = chunkDocument(doc, { chunkSize: 512, chunkOverlap: 50 });
+        if (!chunked.ok) {
+          sendError('bad_request', `failed to chunk document: ${chunked.issues.map((i) => i.message).join('; ')}`, 400);
+          return;
+        }
+
+        const chunks = chunked.value;
+        if (chunks.length === 0) {
+          sendError('bad_request', 'document produced no chunks', 400);
+          return;
+        }
+
+        // Embed chunks.
+        const embeddings = await embeddingProvider.embedTexts(chunks.map((c) => c.content), 'document');
+        if (!embeddings || embeddings.length !== chunks.length) {
+          sendError('unavailable', 'embedding provider failed', 502);
+          return;
+        }
+
+        // Build indexed records.
+        const indexedRecords = chunks.map((chunk, i) => {
+          const embedding = embeddings[i];
+          if (!embedding) {
+            throw new Error(`Missing embedding for chunk ${chunk.id}`);
+          }
+          return { chunk, embedding };
+        });
+
+        // Upsert into vector store.
+        const upsertResult = await vectorStore.upsert(indexedRecords);
+        if (!upsertResult.ok) {
+          sendError('unavailable', `indexing failed: ${upsertResult.issues.map((i: { path: string; message: string }) => i.message).join('; ')}`, 502);
+          return;
+        }
+
+        // Track in ingestion lifecycle.
+        if (deps.ingestionLifecycleTracker) {
+          deps.ingestionLifecycleTracker.recordIngestion(doc.id, fileName, contentHash, chunks.length);
+          deps.ingestionLifecycleTracker.recordChunks(indexedRecords);
+        }
+
+        // Audit: ingestion completed.
+        await emitAudit(deps, 'ingestion.completed', {
+          documentId: doc.id,
+          tenantId,
+          chunkCount: chunks.length,
+        });
+
+        statusCode = 200;
+        sendJson(200, {
+          ok: true,
+          documentId: doc.id,
+          document: {
+            id: doc.id,
+            source: doc.metadata.source,
+            chunkCount: chunks.length,
+          },
+          chunksUpserted: chunks.length,
+        });
+        return;
+      }
+
+      if (req.method === 'DELETE' && req.url?.startsWith('/documents/')) {
+        const documentId = req.url.slice('/documents/'.length);
+        if (!documentId || documentId.includes('/')) {
+          sendError('bad_request', 'invalid document ID', 400);
+          return;
+        }
+
+        // Resolve trusted tenant identity (authoritative; never from client input).
+        const erasureTenantId = deps.authorizationPrincipal?.tenantId;
+        if (!erasureTenantId) {
+          await emitAudit(deps, 'erasure.requested', {
+            documentId,
+            reason: 'missing trusted tenant identity',
+          });
+          sendError('unauthorized', 'missing trusted principal', 401);
+          return;
+        }
+
+        // Verify document ownership (tenant owns this document).
+        const existingRecord = deps.ingestionLifecycleTracker?.getSourceRecord(documentId);
+        if (!existingRecord || existingRecord.documentId !== documentId) {
+          sendError('forbidden', 'document not found or not owned by this tenant', 403);
+          return;
+        }
+
+        // Enforce residency before erasure if a policy is configured.
+        if (deps.residencyPolicy) {
+          const rule: ResidencyRule = {
+            region: resolveRegionFromConfig(deps.config),
+            tenantId: erasureTenantId,
+          };
+          const residency = await checkResidency(
+            deps.residencyPolicy,
+            rule,
+            rule.region,
+            erasureTenantId,
+          );
+          if (!residency.allowed) {
+            await emitAudit(deps, 'erasure.requested', {
+              documentId,
+              tenantId: erasureTenantId,
+              reason: `residency denied: ${residency.reason}`,
+            });
+            sendError('forbidden', residency.reason, 403);
+            return;
+          }
+        }
+
+        // Audit: erasure requested.
+        await emitAudit(deps, 'erasure.requested', {
+          documentId,
+          tenantId: erasureTenantId,
+        });
+
+        if (!deps.erasureService) {
+          await emitAudit(deps, 'erasure.completed', {
+            documentId,
+            tenantId: erasureTenantId,
+            ok: false,
+            reason: 'erasure service not configured',
+          });
+          sendError('unavailable', 'erasure service not configured', 503);
+          return;
+        }
+
+        const erasureResult = await deps.erasureService({
+          documentId,
+          tenantId: erasureTenantId,
+        });
+
+        if (!erasureResult.ok) {
+          sendError('unavailable', 'erasure cascade incomplete', 502);
+          return;
+        }
+
+        metrics.increment('http_erasure');
+        statusCode = 200;
+        sendJson(200, {
+          ok: true,
+          documentId,
+          initiatedAt: erasureResult.initiatedAt,
+          residualChunkCount: erasureResult.residualChunkCount,
+          storeResults: erasureResult.storeResults,
+        });
         return;
       }
 
