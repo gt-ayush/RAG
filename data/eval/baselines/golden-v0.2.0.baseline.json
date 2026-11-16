@@ -1,30 +1,43 @@
 {
+  "runId": "golden-v0.2.0-smoke-baseline-2026-11-16",
+  "measuredAt": "2026-11-16",
   "dataset": {
     "path": "data/eval/golden-v0.2.0.json",
     "version": "0.2.0",
-    "sampleSize": 10,
-    "method": "synthetic smoke eval; deterministic mock embeddings/model; chunkSize=200 overlap=0; topK=3; separate retrieval+generation passes"
-  },
-  "retrieval": {
-    "recallAtK": 1,
-    "mrr": 1,
+    "name": "rag-golden-representative-smoke",
     "sampleSize": 10
   },
-  "generation": {
-    "insufficientContextCases": 3,
-    "sampleSize": 10
+  "configuration": {
+    "chunking": { "chunkSize": 200, "chunkOverlap": 0 },
+    "embedding": { "provider": "deterministic-mock", "model": "mock-embed-v1", "dimensions": 8 },
+    "vectorStore": { "kind": "memory" },
+    "retrieval": { "topK": 3, "filters": null, "reranker": null, "denseOnly": true },
+    "generation": { "provider": "deterministic-mock", "model": "mock-lm-v1" }
   },
-  "evaluatedAt": "2026-11-15",
+  "method": "Automated smoke evaluation via tests/eval.smoke.test.ts. For each case, synthetic documents were chunked, embedded with a deterministic keyword-hash mock embedder, upserted into MemoryVectorStore, retrieved (topK=3, dense-only), then passed to a deterministic mock language model. Retrieval and generation evaluated separately.",
+  "results": {
+    "retrieval": {
+      "recallAt3": 1,
+      "mrr": 1,
+      "ndcgAt3": 1,
+      "sampleSize": 10
+    },
+    "generation": {
+      "insufficientContextCases": 2,
+      "insufficientContextCaseIds": ["smoke-003", "smoke-006"],
+      "sampleSize": 10
+    }
+  },
   "limitations": [
-    "Synthetic baseline only; deterministic mock embeddings/model.",
-    "Not representative of production/quality/SLO evidence.",
-    "Baseline for regression delta checks only — do not treat as quality certification."
+    "Measured on synthetic smoke dataset (n=10); not statistically meaningful and not evidence of production or domain quality.",
+    "Mock embedding and generation models were used; results do not reflect real provider/model behavior, latency, cost, or faithfulness under realistic conditions.",
+    "No human-judged faithfulness/answer relevance, context precision/recall, latency percentiles, or cost-per-query were measured in this run."
   ],
   "previousVersion": {
     "dataset": "data/eval/golden-v0.1.0.json",
     "version": "0.1.0",
     "retrieval": {
-      "recallAtK": 1,
+      "recallAt3": 1,
       "mrr": 1,
       "sampleSize": 3
     },
@@ -35,8 +48,9 @@
   },
   "delta": {
     "sampleSizeChange": 7,
-    "recallAtKChange": 0,
+    "recallAt3Change": 0,
     "mrrChange": 0,
+    "ndcgAt3Change": 0,
     "note": "Expanded dataset from n=3 to n=10; metrics unchanged on deterministic mocks. Delta indicates regression stability, not quality improvement."
   }
 }
