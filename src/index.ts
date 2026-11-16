@@ -181,6 +181,12 @@ export type {
   BurnInQueryResult,
   SloResult,
   SloType,
+  AlertOperator,
+  AlertThreshold,
+  AlertState,
+  AlertEvaluation,
+  DegradationMode,
+  DegradationConfig,
 } from './types.js';
 export type { TenantCostBreakdown } from './cost-tracking.js';
 export {
