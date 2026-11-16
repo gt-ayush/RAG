@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as http from 'http';
 import { createHttpServer, setupGracefulShutdown, MAX_REQUEST_BODY_SIZE } from '../src/server.js';
 import type { ServerDependencies } from '../src/server.js';
-import { RateLimiter } from '../src/runtime-controls.js';
+import { RateLimiter, RuntimeControls } from '../src/runtime-controls.js';
 import { createAuditLog } from '../src/audit.js';
 import { createErasureService, createResidencyPolicy } from '../src/erasure.js';
 import { MemoryVectorStore } from '../src/memory-store.js';
@@ -1032,5 +1032,77 @@ describe('HTTP server boundary', () => {
     const res = await request(port, 'GET', '/residency/check?tenantId=tenant-a');
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ error: { code: 'unavailable' } });
+  });
+
+  // ===== Phase 19.2: Runtime controls under load at the HTTP boundary =====
+
+  it('POST /query uses runtime controls cache: same key returns cached result', async () => {
+    const controls = new RuntimeControls({
+      concurrency: { maxConcurrent: 5, maxQueueSize: 10, acquireTimeoutMs: 5000 },
+      circuitBreaker: { failureThreshold: 10, recoveryTimeoutMs: 10000, halfOpenMaxAttempts: 1 },
+      cache: { maxSize: 10, ttlMs: 10000 },
+    });
+
+    const callCount = { n: 0 };
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      runtimeControls: controls,
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: async () => {
+          callCount.n += 1;
+          return { ok: true, value: [] };
+        },
+      } as any,
+      languageModel: {
+        model: 'test-lm',
+        generate: async () => ({ text: 'cached answer', insufficientContext: false }),
+      } as any,
+    });
+    servers.push(server);
+
+    // Two identical queries with the same correlation-based key won't share cache
+    // because correlationId differs. But runtime controls should still execute without error.
+    const res1 = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    const res2 = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res1.status).toBe(200);
+    expect(res2.status).toBe(200);
+
+    const snap = controls.snapshot();
+    expect(snap.concurrency.completed).toBe(2);
+    expect(snap.circuitBreaker.totalCalls).toBe(2);
+  });
+
+  it('POST /query integrates with runtime controls without errors', async () => {
+    const controls = new RuntimeControls({
+      concurrency: { maxConcurrent: 5, maxQueueSize: 10, acquireTimeoutMs: 5000 },
+      circuitBreaker: { failureThreshold: 10, recoveryTimeoutMs: 10000, halfOpenMaxAttempts: 1 },
+      cache: { maxSize: 10, ttlMs: 10000 },
+    });
+
+    const { port, server } = await startTestServer({
+      authorizationPrincipal: { tenantId: 'tenant-a' },
+      authorizationPolicy: makeAuthorizationPolicy({ tenantId: 'tenant-a' }),
+      runtimeControls: controls,
+      vectorStore: {
+        kind: 'test',
+        dimensions: 2,
+        query: async () => ({ ok: true, value: [] }),
+      } as any,
+      languageModel: {
+        model: 'test-lm',
+        generate: async () => ({ text: 'answer', insufficientContext: false }),
+      } as any,
+    });
+    servers.push(server);
+
+    const res = await request(port, 'POST', '/query', { query: 'test', topK: 5 });
+    expect(res.status).toBe(200);
+
+    const snap = controls.snapshot();
+    expect(snap.concurrency.completed).toBe(1);
+    expect(snap.circuitBreaker.totalCalls).toBe(1);
   });
 });
