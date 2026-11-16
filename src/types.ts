@@ -664,3 +664,68 @@ export interface CostMetrics {
   /** Total number of tokens processed (embedding + generation input + output). */
   totalTokenCount: number;
 }
+
+/** Configuration for embedding drift monitoring. */
+export interface EmbeddingDriftConfig {
+  /** KL divergence threshold above which drift is flagged. */
+  klDivergenceThreshold: number;
+  /** Minimum number of samples required before a drift check is valid. */
+  minSampleSize: number;
+  /** Model version currently in production (the reference). */
+  productionModelVersion: string;
+  /** Candidate model version being evaluated. */
+  candidateModelVersion: string | undefined;
+}
+
+/** Result of an embedding drift check. */
+export interface EmbeddingDriftResult {
+  /** Whether drift was detected (KL divergence exceeds threshold). */
+  driftDetected: boolean;
+  /** KL divergence value between reference and candidate distributions. */
+  klDivergence: number;
+  /** Threshold used for the drift check. */
+  threshold: number;
+  /** Reference model version. */
+  referenceModelVersion: string;
+  /** Candidate model version, if any. */
+  candidateModelVersion: string | undefined;
+  /** Timestamp when the check was performed. */
+  checkedAt: string;
+  /** Recommended action based on the drift result. */
+  recommendedAction: 'keep' | 'rollback' | 'reindex' | 'investigate';
+  /** Number of samples used in the check. */
+  sampleSize: number;
+}
+
+/** A snapshot of an embedding distribution for drift comparison. */
+export interface EmbeddingDistributionSnapshot {
+  /** Model version that produced these embeddings. */
+  modelVersion: string;
+  /** Number of embeddings in the snapshot. */
+  sampleSize: number;
+  /** Mean of each dimension across the sample. */
+  dimensionMeans: readonly number[];
+  /** Variance of each dimension across the sample. */
+  dimensionVariances: readonly number[];
+  /** Timestamp when the snapshot was taken. */
+  capturedAt: string;
+}
+
+/** Decision about which model version to use. */
+export type ModelVersionDecision = 'keep' | 'rollback' | 'candidate_approved';
+
+/** Result of a model governance evaluation. */
+export interface ModelGovernanceResult {
+  /** The model version decision. */
+  decision: ModelVersionDecision;
+  /** The model version to use after the decision. */
+  selectedModelVersion: string;
+  /** The previous (production) model version. */
+  previousModelVersion: string;
+  /** Whether a re-index is recommended. */
+  reindexRecommended: boolean;
+  /** Reason for the decision. */
+  reason: string;
+  /** Timestamp when the decision was made. */
+  decidedAt: string;
+}
