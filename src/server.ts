@@ -6,7 +6,11 @@ import type {
   AuthorizationPrincipal,
   AuditEventType,
   AuditLog,
+  ErasureRequest,
+  ErasureService,
   PipelineConfig,
+  ResidencyPolicy,
+  ResidencyRule,
   Result,
   TenantAuthorizationPolicyConfig,
   TenantQuotaConfig,
@@ -24,6 +28,7 @@ import { generateGroundedAnswer } from './generate.js';
 import { decisionToAuthzComponents, makeAuthorizationPolicy } from './authorization.js';
 import { createStructuredLogger, type Logger, MetricsRecorder } from './observability.js';
 import { RateLimiter as GatewayRateLimiter } from './runtime-controls.js';
+import { checkResidency } from './erasure.js';
 import * as http from 'http';
 
 /**
@@ -51,6 +56,10 @@ export interface ServerDependencies {
   requiredRoles?: readonly string[];
   /** Optional append-only audit log for query/retrieval/generation events. */
   auditLog?: AuditLog;
+  /** Optional erasure service for GDPR/document deletion cascade. */
+  erasureService?: ErasureService;
+  /** Optional residency policy for region/tenant enforcement. */
+  residencyPolicy?: ResidencyPolicy;
   logger: Logger;
   metrics: MetricsRecorder;
 }
@@ -599,6 +608,118 @@ export function createHttpServer(deps: ServerDependencies): http.Server {
             score: r.score,
             rank: r.rank,
           })),
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && req.url === '/erasure') {
+        let raw = '';
+        let receivedBytes = 0;
+        for await (const chunk of req) {
+          const data = chunk as string;
+          receivedBytes += Buffer.byteLength(data);
+          if (receivedBytes > MAX_REQUEST_BODY_SIZE) {
+            sendError('bad_request', 'request body too large', 413);
+            return;
+          }
+          raw += data;
+        }
+
+        const parsed = parseJsonBody<ErasureRequest>(raw);
+        if (!parsed.ok) {
+          sendError('bad_request', 'invalid request body', 400);
+          return;
+        }
+
+        const { documentId, tenantId, legalBasis, deadline } = parsed.value;
+
+        if (!documentId || typeof documentId !== 'string' || documentId.trim().length === 0) {
+          sendError('validation_error', 'documentId is required and must be a non-empty string', 400);
+          return;
+        }
+
+        // Resolve trusted tenant identity (authoritative; never from client input).
+        const erasureTenantId = deps.authorizationPrincipal?.tenantId;
+        if (!erasureTenantId) {
+          await emitAudit(deps, 'erasure.requested', {
+            documentId,
+            reason: 'missing trusted tenant identity',
+          });
+          sendError('unauthorized', 'missing trusted principal', 401);
+          return;
+        }
+
+        // Enforce residency before erasure if a policy is configured.
+        if (deps.residencyPolicy) {
+          const rule: ResidencyRule = {
+            region: deps.config.vectorDb.url.includes('eu-west-1') ? 'eu-west-1' : 'us-east-1',
+            tenantId: erasureTenantId,
+          };
+          const residency = await checkResidency(
+            deps.residencyPolicy,
+            rule,
+            rule.region,
+            erasureTenantId,
+          );
+          if (!residency.allowed) {
+            await emitAudit(deps, 'erasure.requested', {
+              documentId,
+              tenantId: erasureTenantId,
+              reason: `residency denied: ${residency.reason}`,
+            });
+            sendError('forbidden', residency.reason, 403);
+            return;
+          }
+        }
+
+        // Audit: erasure requested.
+        await emitAudit(deps, 'erasure.requested', {
+          documentId,
+          tenantId: erasureTenantId,
+          ...(legalBasis ? { legalBasis } : {}),
+          ...(deadline ? { deadline } : {}),
+        });
+
+        if (!deps.erasureService) {
+          await emitAudit(deps, 'erasure.completed', {
+            documentId,
+            tenantId: erasureTenantId,
+            ok: false,
+            reason: 'erasure service not configured',
+          });
+          sendError('unavailable', 'erasure service not configured', 503);
+          return;
+        }
+
+        const erasureResult = await deps.erasureService({
+          documentId,
+          tenantId: erasureTenantId,
+          ...(legalBasis ? { legalBasis } : {}),
+          ...(deadline ? { deadline } : {}),
+        });
+
+        // Audit: erasure completed.
+        await emitAudit(deps, 'erasure.completed', {
+          documentId,
+          tenantId: erasureTenantId,
+          ok: erasureResult.ok,
+          residualChunkCount: erasureResult.residualChunkCount,
+          storeCount: erasureResult.storeResults.length,
+        });
+
+        if (!erasureResult.ok) {
+          sendError('unavailable', 'erasure cascade incomplete', 502);
+          return;
+        }
+
+        metrics.increment('http_erasure');
+        statusCode = 200;
+        sendJson(200, {
+          ok: true,
+          documentId,
+          initiatedAt: erasureResult.initiatedAt,
+          residualChunkCount: erasureResult.residualChunkCount,
+          storeResults: erasureResult.storeResults,
         });
         return;
       }
