@@ -201,3 +201,59 @@ describe('createCostTracker', () => {
     expect(tracker).toBeInstanceOf(CostMetricsTracker);
   });
 });
+
+describe('CostMetricsTracker per-tenant attribution', () => {
+  const config: CostConfig = {
+    embeddingCostPer1kTokens: 0.10,
+    llmInputCostPer1kTokens: 0.50,
+    llmOutputCostPer1kTokens: 1.50,
+    vectorWriteCostPer1kVectors: 0.10,
+    vectorReadCostPer1kVectors: 0.05,
+  };
+
+  it('tracks per-tenant query costs', () => {
+    const tracker = new CostMetricsTracker(config);
+
+    tracker.trackQueryWithTenant('tenant-a', 0.01, 0.02, 0.03, 600);
+    tracker.trackQueryWithTenant('tenant-a', 0.02, 0.01, 0.04, 800);
+    tracker.trackQueryWithTenant('tenant-b', 0.05, 0.0, 0.10, 2000);
+
+    const breakdown = tracker.getTenantCostBreakdown();
+    expect(breakdown).toHaveLength(2);
+
+    // tenant-b should be first (highest cost)
+    expect(breakdown[0].tenantId).toBe('tenant-b');
+    expect(breakdown[0].totalCost).toBeCloseTo(0.15);
+    expect(breakdown[0].queryCount).toBe(1);
+
+    expect(breakdown[1].tenantId).toBe('tenant-a');
+    expect(breakdown[1].totalCost).toBeCloseTo(
+      0.01 + 0.02 + 0.03 + 0.02 + 0.01 + 0.04,
+    );
+    expect(breakdown[1].queryCount).toBe(2);
+    expect(breakdown[1].costPerQuery).toBe(
+      breakdown[1].totalCost / 2,
+    );
+    expect(breakdown[1].totalTokenCount).toBe(1400);
+  });
+
+  it('returns empty breakdown when no queries tracked', () => {
+    const tracker = new CostMetricsTracker(config);
+    const breakdown = tracker.getTenantCostBreakdown();
+    expect(breakdown).toHaveLength(0);
+  });
+
+  it('snapshot includes cost per query and ingestion', () => {
+    const tracker = new CostMetricsTracker(config);
+    tracker.trackQueryWithTenant('tenant-a', 0.01, 0.02, 0.03, 600);
+    tracker.getIngestionTracker().track(10, 0.05, 0.02);
+
+    const metrics = tracker.snapshot();
+    expect(metrics.queryCount).toBe(1);
+    expect(metrics.ingestionCount).toBe(1);
+    // costPerQuery = totalCost / queryCount, where totalCost includes all costs
+    expect(metrics.costPerQuery).toBeCloseTo(0.13);
+    expect(metrics.costPerIngestion).toBeCloseTo(0.13);
+    expect(metrics.totalCost).toBeCloseTo(0.13);
+  });
+});
