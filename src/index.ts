@@ -75,7 +75,7 @@ export type {
   RetrieverDependencies,
   RetrieveRequest,
 } from './retrieve.js';
-export { retrieve } from './retrieve.js';
+export { retrieve, multiSourceRRF } from './retrieve.js';
 
 export type {
   GenerateDependencies,
@@ -119,6 +119,15 @@ export {
   bypassQueryTransformer,
   isQueryTransformationResult,
 } from './query-transform.js';
+
+export type {
+  HybridRetrievalOptions,
+  SparseVector,
+  SparseEmbedding,
+  SparseRetrievalResult,
+  SparseVectorStore,
+} from './types.js';
+export { SparseMemoryStore } from './sparse-store.js';
 
 export type {
   QueryRequestBody,
