@@ -327,6 +327,18 @@ async function main() {
     },
     failures: { count: totalFailures, rate: totalQueries ? totalFailures / totalQueries : 0 },
     cost: { measured: false, reason: 'no external paid providers/services used (deterministic local mocks unless real endpoints configured)' },
+    sloTargets: {
+      retrievalP95Ms: 800,
+      generationP95Ms: 800,
+      maxFailureRate: 0,
+      uptimeTarget: 99.9,
+    },
+    sloEvaluation: {
+      retrievalP95UnderTarget: percentile(allRetrieval, 95) < 800,
+      generationP95UnderTarget: percentile(allGeneration, 95) < 800,
+      zeroFailures: totalFailures === 0,
+      allSlosMet: false,
+    },
     limitations: usingRealProviders
       ? [
           'Measured against configured real provider endpoints.',
@@ -337,8 +349,14 @@ async function main() {
           'Local in-memory micro-benchmark with deterministic mocks; not representative of real provider/network/storage latency, throughput, or failure modes.',
           'Real provider endpoints not configured (set EMBEDDING_BASE_URL, VECTOR_DB_URL, LLM_BASE_URL to measure against real services).',
           'Not evidence of production SLOs, scalability, availability, or cost.',
+          'SLO thresholds below are illustrative targets, not certified production guarantees.',
         ],
   };
+
+  result.sloEvaluation.allSlosMet =
+    result.sloEvaluation.retrievalP95UnderTarget &&
+    result.sloEvaluation.generationP95UnderTarget &&
+    result.sloEvaluation.zeroFailures;
 
   console.log(JSON.stringify(result, null, 2));
   return result;
