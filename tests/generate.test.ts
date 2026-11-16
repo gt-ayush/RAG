@@ -119,4 +119,91 @@ describe('generateGroundedAnswer', () => {
     const ok = await generateGroundedAnswer({ query: 'Policy?', context: [result] }, { model: safeModel });
     expect(ok.ok).toBe(true);
   });
+
+  it('rejects hallucinated chunk IDs in citations (fake chunk IDs are ignored)', async () => {
+    const model = {
+      model: 'm',
+      generate: vi.fn(async () => ({
+        text: 'Remote work is allowed on Fridays [1]. Fake claim [99].',
+        citedChunkIds: ['d::chunk::0', 'fake::chunk::99', 'another::fake::id'],
+      })),
+    };
+
+    const res = await generateGroundedAnswer(
+      { query: 'Policy?', context: [result] },
+      { model },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.insufficientContext).toBe(false);
+    // Only real chunk IDs are kept
+    expect(res.value.citations.map((c) => c.chunkId)).toEqual(['d::chunk::0']);
+    // Fake chunk IDs are reported as ignored
+    expect(res.value.ignoredCitationIds).toEqual(['fake::chunk::99', 'another::fake::id']);
+  });
+
+  it('keeps all citations when model cites real chunk IDs only', async () => {
+    const result2: RetrievalResult = {
+      chunk: {
+        id: 'd::chunk::1',
+        documentId: 'd',
+        content: 'Second chunk content',
+        index: 1,
+        metadata: { documentId: 'd', source: 'policy.txt', chunkId: 'd::chunk::1', chunkIndex: 1 },
+      },
+      score: 0.8,
+      rank: 2,
+      sourceId: 'd',
+    };
+
+    const model = {
+      model: 'm',
+      generate: vi.fn(async () => ({
+        text: 'Fridays and weekends are allowed.',
+        citedChunkIds: ['d::chunk::0', 'd::chunk::1'],
+      })),
+    };
+
+    const res = await generateGroundedAnswer(
+      { query: 'Policy?', context: [result, result2] },
+      { model },
+    );
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.citations.map((c) => c.chunkId).sort()).toEqual(['d::chunk::0', 'd::chunk::1']);
+    expect(res.value.ignoredCitationIds).toEqual([]);
+  });
+
+  it('ignoredCitationIds is empty when no citedChunkIds provided', async () => {
+    const model = {
+      model: 'm',
+      generate: vi.fn(async () => ({
+        text: 'Remote work is allowed.',
+        citedChunkIds: undefined,
+      })),
+    };
+
+    const res = await generateGroundedAnswer({ query: 'Policy?', context: [result] }, { model });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.ignoredCitationIds).toEqual([]);
+    // All chunks are returned when no specific citations requested
+    expect(res.value.citations.map((c) => c.chunkId)).toEqual(['d::chunk::0']);
+  });
+
+  it('reports all hallucinated chunk IDs when multiple are fake', async () => {
+    const model = {
+      model: 'm',
+      generate: vi.fn(async () => ({
+        text: 'Some text with fake citations.',
+        citedChunkIds: ['fake::1', 'fake::2', 'fake::3'],
+      })),
+    };
+
+    const res = await generateGroundedAnswer({ query: 'Policy?', context: [result] }, { model });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.ignoredCitationIds).toEqual(['fake::1', 'fake::2', 'fake::3']);
+    expect(res.value.citations).toEqual([]);
+  });
 });
