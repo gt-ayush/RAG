@@ -20,7 +20,7 @@ A TypeScript-based RAG (Retrieval-Augmented Generation) project with a **working
 - Rich document parsing (PDF/HTML/DOCX/EML/XLSX/OCR/tables), hybrid sparse+dense retrieval, BM25/RRF, cross-encoder reranking, and measured quality improvements on representative datasets.
 - Durable multi-tenant ACL enforcement beyond the gateway rate-limit/quota/RBAC scaffold, centralized audit/security logging, GDPR erasure cascade verification, data residency enforcement, and production SLO/HA/DR evidence.
 - Enterprise architecture in `docs/01-03`/`plan.md` is a **target design** (Financial Services, AWS, SOC 2 Type II + GDPR, 10M+ docs) — not proof of implementation or compliance.
-- The remaining work is tracked as forward phases (16–20: compliance evidence, retrieval quality, durable lifecycle, observability/cost, release readiness) in `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17.
+- The remaining work is tracked as forward phases (21–25: real-time streaming generation & citation verification, rich document ingestion & HTTP upload, hybrid retrieval & query expansion, distributed state & Prometheus metrics, live credential smoke suite & documentation sync) in `docs/11_phase_status_and_roadmap.md` and `AGENTS.md` §17.
 
 ## Project structure (current)
 
@@ -253,7 +253,7 @@ Production-grade **design** deliverables (not implemented): Financial Services d
 
 Additional implemented-baseline docs: `docs/04_evaluation_methodology.md`, `docs/05_evaluation_baseline.md`, `docs/06_security_threat_control_review.md`, `docs/07_compliance_gap_assessment.md`, `docs/08_operations_baseline.md`, `docs/09_observability_runtime_controls.md`, `docs/10_deployment_cost_readiness.md`.
 
-Phase status and forward roadmap: `docs/11_phase_status_and_roadmap.md` (completed baseline 0–9 with evidence, known limits, and remaining phases 10–14).
+Phase status and forward roadmap: `docs/11_phase_status_and_roadmap.md` (completed baseline 0–20 with evidence, known limits).
 
 ## Contributing
 
